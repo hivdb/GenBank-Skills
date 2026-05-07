@@ -1,0 +1,4 @@
+interface:
+  display_name: "GenBank Single Accession Extractor"
+  short_description: "Fetch accession and extract FASTA data"
+  default_prompt: "Use $genbank-single-accession-extractor to download this GenBank accession and extract FASTA, references, and isolate metadata."
