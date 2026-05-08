@@ -1,0 +1,4 @@
+interface:
+  display_name: "GenBank Gene Split Alignment"
+  short_description: "Split cohort records into gene FASTAs"
+  default_prompt: "Use $genbank-gene-split-alignment to align these GenBank records to a reference FASTA and save per-gene nucleotide FASTA files."

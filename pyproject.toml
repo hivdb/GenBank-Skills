@@ -6,6 +6,7 @@ readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
     "biopython>=1.87",
+    "matplotlib>=3.10.9",
     "python-dotenv>=1.2.2",
     "requests>=2.33.1",
 ]
