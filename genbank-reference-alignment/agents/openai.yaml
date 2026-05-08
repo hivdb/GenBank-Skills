@@ -1,0 +1,4 @@
+interface:
+  display_name: "GenBank Reference Alignment"
+  short_description: "Align accessions to a reference gene"
+  default_prompt: "Use $genbank-reference-alignment to align these GenBank accessions to a reference FASTA gene and report aligned ranges."

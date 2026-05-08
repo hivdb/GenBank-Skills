@@ -1,6 +1,6 @@
 # GenBank Skills
 
-This repository helps an AI agent work with a single GenBank accession at a time.
+This repository helps an AI agent work with single-accession GenBank extraction and accession-to-reference alignment workflows.
 
 ## Start With Codex
 
@@ -24,10 +24,57 @@ If you have a GenBank accession and want the GenBank record, FASTA, references, 
 Use $genbank-single-accession-extractor to download accession PV289040, extract FASTA, organism common name, and isolate metadata, and recover PMID information for references when possible.
 ```
 
+If you want to align one accession, multiple accessions, or a query FASTA file against all entries in a reference FASTA and report the best-matching gene/range, ask the agent with a prompt like:
+
+```text
+Use $genbank-reference-alignment to align accession PV289040 against /path/to/reference.fasta and report the best matched gene and aligned range.
+```
+
+For multiple accessions:
+
+```text
+Use $genbank-reference-alignment to align accessions PV289040, PV289041, and PV289042 against /path/to/reference.fasta and report the best matched gene and aligned ranges in a CSV file.
+```
+
+For a query FASTA file:
+
+```text
+Use $genbank-reference-alignment to align the sequences in /path/to/query.fasta against /path/to/reference.fasta and report the best matched genes and aligned ranges.
+```
+
+If you do not provide the reference FASTA path, the agent should stop and ask which file path to use.
+If you provide a gene, it is treated as an optional filter against the FASTA headers.
+
 The agent will run:
 
 ```bash
 uv run python genbank-single-accession-extractor/scripts/fetch_genbank_accession.py --accession PV289040
+```
+
+For alignment, the agent will run:
+
+```bash
+uv run python genbank-reference-alignment/scripts/align_accessions_to_reference.py --reference-fasta /path/to/reference.fasta --accession PV289040
+```
+
+With an optional gene filter:
+
+```bash
+uv run python genbank-reference-alignment/scripts/align_accessions_to_reference.py --reference-fasta /path/to/reference.fasta --gene NS5B --accession PV289040 --accession PV289041 --accession PV289042
+```
+
+With a query FASTA file:
+
+```bash
+uv run python genbank-reference-alignment/scripts/align_accessions_to_reference.py --reference-fasta /path/to/reference.fasta --query-fasta /path/to/query.fasta
+```
+
+By default, alignment outputs are written under `outputs/`, not a separate top-level alignment folder.
+
+For multiple accessions, the script writes one batch CSV with a simple filename such as:
+
+```text
+outputs/alignment_batch_PV289040_PV289041_PV289042.csv
 ```
 
 By default, the script reuses existing per-accession intermediate/output files if they already exist under `outputs/ACCESSION/`.
@@ -219,6 +266,7 @@ Cache behavior:
 ## Included Skill
 
 - `genbank-single-accession-extractor/`: Download one GenBank accession, extract FASTA plus organism/source metadata, and enrich references with PMID lookup.
+- `genbank-reference-alignment/`: Align one or more GenBank accessions against all reference FASTA entries and report the best matched gene and aligned ranges.
 
 ## Repository Layout
 
@@ -226,6 +274,12 @@ Cache behavior:
 .
 ├── README.md
 ├── .gitignore
+├── genbank-reference-alignment/
+│   ├── SKILL.md
+│   ├── agents/
+│   │   └── openai.yaml
+│   └── scripts/
+│       └── align_accessions_to_reference.py
 └── genbank-single-accession-extractor/
 │   ├── SKILL.md
 │   ├── agents/
@@ -237,6 +291,7 @@ Cache behavior:
 ## Notes
 
 - `outputs/` is ignored by git.
+- FASTA files in this repository are ignored by git.
 - Python cache files are ignored by git.
 - The extractor keeps the raw GenBank flatfile together with parsed outputs.
 - Missing `isolate` is treated as missing data, not as a script error.
