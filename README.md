@@ -1,6 +1,8 @@
 # GenBank Skills
 
-This repository helps an AI agent work with single-accession GenBank extraction, accession-to-reference alignment, and cohort-level GenBank metadata workflows.
+![GenBank Skills logo](assets/genbank-skills-logo.png)
+
+GenBank Skills is a toolkit for working from GenBank accessions to the things researchers usually need next: the linked paper or submission context, clone and quasispecies patterns within a group of samples, and sequence-level checks through reference alignment and downstream quality review.
 
 ## Start With Codex
 
