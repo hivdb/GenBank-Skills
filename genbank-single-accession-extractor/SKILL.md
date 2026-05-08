@@ -32,6 +32,12 @@ uv run python genbank-single-accession-extractor/scripts/fetch_genbank_accession
    - optionally use the OpenAI Responses API with web search for unresolved references
    - for `Direct Submission`, combine accession, authors, scientific organism, and common name in the OpenAI search context
 
+5. If a PMID is available, the script should:
+   - resolve the PMCID when the article is in PMC
+   - print the PMC PDF URL and the OA package URL for the user
+   - if the user supplies one or more local paper files, convert them to Markdown with a local parser and scan the sentences for accession mentions
+   - accept repeated paper file paths or a directory of PDFs, DOCX files, and XLSX files
+
 ## Output Contract
 
 The script writes an accession-specific output directory containing:
@@ -42,6 +48,9 @@ The script writes an accession-specific output directory containing:
 - `references.json`: parsed and enriched `REFERENCE` blocks
 - `source_feature.json`: parsed `source` feature qualifiers
 - `reference_resolution.json`: PMID lookup diagnostics from PubMed, Crossref, and optional AI fallback
+- `pmc_resources.json`: resolved PMCID and PMC download URLs when available
+- `paper_markdown/`: Markdown conversion of each supplied paper file when present
+- `paper_accession_hits.json`: sentence-level accession match results from the supplied files
 - `summary.json`: concise combined summary
 
 ## Operating Rules

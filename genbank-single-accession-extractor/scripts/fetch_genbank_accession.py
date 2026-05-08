@@ -7,6 +7,8 @@ import json
 import os
 import re
 import sys
+import zipfile
+import xml.etree.ElementTree as ET
 from importlib.util import module_from_spec, spec_from_file_location
 from pathlib import Path
 from typing import Any
@@ -63,6 +65,23 @@ def parse_args() -> argparse.Namespace:
         "--fully-rerun",
         action="store_true",
         help="Ignore existing cached files for this accession and recompute everything",
+    )
+    parser.add_argument(
+        "--paper-pdf",
+        default="",
+        help="Optional local paper PDF path to convert to markdown and scan for accession mentions",
+    )
+    parser.add_argument(
+        "--paper-file",
+        action="append",
+        default=[],
+        help="Optional local paper file path to scan; repeat for multiple PDFs, DOCX files, or XLSX files",
+    )
+    parser.add_argument(
+        "--paper-dir",
+        action="append",
+        default=[],
+        help="Optional directory containing papers to scan recursively",
     )
     return parser.parse_args()
 
@@ -394,6 +413,328 @@ def report_files_exist(output_dir: Path) -> bool:
         (output_dir / name).exists()
         for name in ("findings_report.txt", "findings_report.docx", "findings_report.xlsx")
     )
+
+
+def supported_paper_suffix(path: Path) -> bool:
+    return path.suffix.lower() in {".pdf", ".docx", ".xlsx"}
+
+
+def collect_paper_inputs(args: argparse.Namespace) -> list[Path]:
+    paths: list[Path] = []
+    raw_inputs = list(args.paper_file or [])
+    if args.paper_pdf:
+        raw_inputs.append(args.paper_pdf)
+    raw_inputs.extend(args.paper_dir or [])
+
+    for raw in raw_inputs:
+        path = Path(raw).expanduser()
+        if path.is_dir():
+            for child in sorted(path.rglob("*")):
+                if child.is_file() and supported_paper_suffix(child):
+                    paths.append(child)
+            continue
+        if path.exists() and supported_paper_suffix(path):
+            paths.append(path)
+    seen: set[str] = set()
+    unique_paths: list[Path] = []
+    for path in paths:
+        key = str(path.resolve())
+        if key in seen:
+            continue
+        seen.add(key)
+        unique_paths.append(path)
+    return unique_paths
+
+
+def parse_sentence_candidates(text: str) -> list[str]:
+    cleaned = re.sub(r"\s+", " ", text).strip()
+    if not cleaned:
+        return []
+    pieces = re.split(r"(?<=[.!?])\s+", cleaned)
+    return [piece.strip() for piece in pieces if piece.strip()]
+
+
+def extract_pdf_markdown(pdf_path: Path) -> tuple[str, list[dict[str, Any]]]:
+    try:
+        from pypdf import PdfReader
+    except ImportError as exc:  # pragma: no cover - import guard
+        raise RuntimeError(
+            "PDF parsing requires the `pypdf` package. Install it with `uv add pypdf` or ask me to do that."
+        ) from exc
+
+    reader = PdfReader(str(pdf_path))
+    pages: list[dict[str, Any]] = []
+    markdown_parts = [f"# {pdf_path.name}", ""]
+    for page_number, page in enumerate(reader.pages, start=1):
+        text = page.extract_text() or ""
+        page_text = re.sub(r"\r\n?", "\n", text).strip()
+        pages.append({"page": page_number, "text": page_text})
+        markdown_parts.append(f"## Page {page_number}")
+        markdown_parts.append("")
+        markdown_parts.append(page_text or "")
+        markdown_parts.append("")
+    return "\n".join(markdown_parts).strip() + "\n", pages
+
+
+def extract_docx_markdown(docx_path: Path) -> tuple[str, list[dict[str, Any]]]:
+    try:
+        with zipfile.ZipFile(docx_path) as zf:
+            document_xml = zf.read("word/document.xml")
+    except KeyError as exc:
+        raise RuntimeError(f"Invalid DOCX file: missing document.xml in {docx_path}") from exc
+    except zipfile.BadZipFile as exc:
+        raise RuntimeError(f"Invalid DOCX file: {docx_path}") from exc
+
+    root = ET.fromstring(document_xml)
+    ns = {"w": "http://schemas.openxmlformats.org/wordprocessingml/2006/main"}
+    paragraphs: list[str] = []
+    for p in root.findall(".//w:p", ns):
+        text = "".join(node.text or "" for node in p.findall(".//w:t", ns)).strip()
+        if text:
+            paragraphs.append(text)
+    markdown = [f"# {docx_path.name}", ""]
+    for paragraph in paragraphs:
+        markdown.append(paragraph)
+        markdown.append("")
+    return "\n".join(markdown).strip() + "\n", [{"section": "document", "text": "\n".join(paragraphs)}]
+
+
+def extract_xlsx_markdown(xlsx_path: Path) -> tuple[str, list[dict[str, Any]]]:
+    ns = {
+        "a": "http://schemas.openxmlformats.org/spreadsheetml/2006/main",
+        "r": "http://schemas.openxmlformats.org/officeDocument/2006/relationships",
+        "rel": "http://schemas.openxmlformats.org/package/2006/relationships",
+    }
+    try:
+        with zipfile.ZipFile(xlsx_path) as zf:
+            shared_strings = []
+            if "xl/sharedStrings.xml" in zf.namelist():
+                shared_root = ET.fromstring(zf.read("xl/sharedStrings.xml"))
+                for si in shared_root.findall("a:si", ns):
+                    shared_strings.append("".join(t.text or "" for t in si.findall(".//a:t", ns)))
+
+            wb_root = ET.fromstring(zf.read("xl/workbook.xml"))
+            rels_root = ET.fromstring(zf.read("xl/_rels/workbook.xml.rels"))
+            rel_map = {
+                rel.attrib["Id"]: rel.attrib["Target"]
+                for rel in rels_root.findall("rel:Relationship", ns)
+            }
+            sheets = []
+            for sheet in wb_root.findall("a:sheets/a:sheet", ns):
+                sheet_name = sheet.attrib.get("name", "Sheet")
+                rel_id = sheet.attrib.get(f"{{{ns['r']}}}id")
+                target = rel_map.get(rel_id, "")
+                if target and not target.startswith("xl/"):
+                    target = f"xl/{target}"
+                sheets.append((sheet_name, target))
+
+            markdown_parts = [f"# {xlsx_path.name}", ""]
+            pages: list[dict[str, Any]] = []
+            for sheet_name, target in sheets:
+                if not target or target not in zf.namelist():
+                    continue
+                sheet_root = ET.fromstring(zf.read(target))
+                rows_text: list[str] = []
+                for row in sheet_root.findall(".//a:sheetData/a:row", ns):
+                    cells: list[str] = []
+                    for cell in row.findall("a:c", ns):
+                        value = ""
+                        cell_type = cell.attrib.get("t", "")
+                        v = cell.find("a:v", ns)
+                        if cell_type == "s" and v is not None and v.text is not None:
+                            idx = int(v.text)
+                            value = shared_strings[idx] if idx < len(shared_strings) else ""
+                        elif cell_type == "inlineStr":
+                            value = "".join(t.text or "" for t in cell.findall(".//a:t", ns))
+                        elif v is not None and v.text is not None:
+                            value = v.text
+                        cells.append(value.strip())
+                    row_text = " | ".join(cell for cell in cells if cell)
+                    if row_text:
+                        rows_text.append(row_text)
+                pages.append({"section": sheet_name, "text": "\n".join(rows_text)})
+                markdown_parts.append(f"## {sheet_name}")
+                markdown_parts.append("")
+                markdown_parts.extend(rows_text)
+                markdown_parts.append("")
+    except zipfile.BadZipFile as exc:
+        raise RuntimeError(f"Invalid XLSX file: {xlsx_path}") from exc
+
+    return "\n".join(markdown_parts).strip() + "\n", pages
+
+
+def extract_paper_markdown(source_path: Path) -> tuple[str, list[dict[str, Any]]]:
+    suffix = source_path.suffix.lower()
+    if suffix == ".pdf":
+        return extract_pdf_markdown(source_path)
+    if suffix == ".docx":
+        return extract_docx_markdown(source_path)
+    if suffix == ".xlsx":
+        return extract_xlsx_markdown(source_path)
+    raise RuntimeError(f"Unsupported paper file type: {source_path}")
+
+
+def scan_paper_source(
+    source_path: Path,
+    accession: str,
+) -> tuple[str, list[dict[str, Any]]]:
+    markdown_text, pages = extract_paper_markdown(source_path)
+    hits: list[dict[str, Any]] = []
+    patterns = [accession]
+    accession_base = accession.split(".")[0]
+    if accession_base not in patterns:
+        patterns.append(accession_base)
+
+    for page in pages:
+        location = page.get("page") or page.get("section") or source_path.name
+        for sentence in parse_sentence_candidates(page.get("text", "")):
+            if any(pattern.lower() in sentence.lower() for pattern in patterns):
+                hits.append(
+                    {
+                        "source_file": str(source_path),
+                        "location": location,
+                        "sentence": sentence,
+                        "contains_accession": True,
+                    }
+                )
+    return markdown_text, hits
+
+
+def scan_paper_sources(
+    source_paths: list[Path],
+    accession: str,
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    markdown_outputs: list[dict[str, Any]] = []
+    hits: list[dict[str, Any]] = []
+    for source_path in source_paths:
+        markdown_text, file_hits = scan_paper_source(source_path, accession)
+        markdown_outputs.append(
+            {
+                "source_file": str(source_path),
+                "markdown_file": source_path,
+                "markdown_text": markdown_text,
+            }
+        )
+        hits.extend(file_hits)
+    return markdown_outputs, hits
+
+
+def write_paper_outputs(
+    output_dir: Path,
+    accession: str,
+    source_paths: list[Path],
+    markdown_outputs: list[dict[str, Any]],
+    hits: list[dict[str, Any]],
+) -> None:
+    markdown_dir = output_dir / "paper_markdown"
+    markdown_dir.mkdir(parents=True, exist_ok=True)
+    markdown_files: list[str] = []
+    for item in markdown_outputs:
+        source_path = Path(item["source_file"])
+        safe_name = re.sub(r"[^A-Za-z0-9._-]+", "_", source_path.stem) or "paper"
+        markdown_path = markdown_dir / f"{safe_name}.md"
+        markdown_path.write_text(item["markdown_text"], encoding="utf-8")
+        item["markdown_file"] = str(markdown_path)
+        markdown_files.append(str(markdown_path))
+
+    hits_json = {
+        "accession": accession,
+        "sources": [str(path) for path in source_paths],
+        "hit_count": len(hits),
+        "hits": hits,
+        "markdown_files": markdown_files,
+    }
+    (output_dir / "paper_accession_hits.json").write_text(
+        json.dumps(hits_json, indent=2, ensure_ascii=True) + "\n",
+        encoding="utf-8",
+    )
+    report_lines = [
+        "Paper File Accession Check",
+        "",
+        f"Accession: {accession}",
+        f"Source count: {len(source_paths)}",
+        f"Hit count: {len(hits)}",
+        "",
+        "Hits",
+    ]
+    if hits:
+        for hit in hits:
+            report_lines.append(f"- {Path(hit.get('source_file', '')).name} [{hit.get('location')}]: {hit.get('sentence')}")
+    else:
+        report_lines.append("- No sentences contained the accession")
+    (output_dir / "paper_accession_hits.txt").write_text("\n".join(report_lines) + "\n", encoding="utf-8")
+    for hit in hits:
+        emit_status(
+            {
+                "stage": "paper_sentence_hit",
+                "source_file": hit.get("source_file"),
+                "location": hit.get("location"),
+                "sentence": hit.get("sentence"),
+            }
+        )
+
+
+def get_primary_pmid(references: list[dict[str, Any]]) -> str | None:
+    for reference in references:
+        pmid = reference.get("pubmed") or reference.get("pmid")
+        if pmid:
+            return str(pmid)
+    return None
+
+
+def fetch_pmc_id_metadata(pmid: str, email: str, tool: str) -> dict[str, Any] | None:
+    params = {
+        "ids": pmid,
+        "format": "json",
+        "tool": tool,
+    }
+    if email:
+        params["email"] = email
+    data = fetch_json(f"https://pmc.ncbi.nlm.nih.gov/tools/idconv/api/v1/articles/?{urlencode(params)}")
+    records = data.get("records") or []
+    if not records:
+        return None
+    record = records[0]
+    pmcid = record.get("pmcid")
+    if not pmcid:
+        return None
+    oa_data = fetch_xml(
+        f"https://www.ncbi.nlm.nih.gov/pmc/utils/oa/oa.fcgi?id={quote_plus(str(pmcid))}"
+    )
+    pdf_url = ""
+    tgz_url = ""
+    for link in oa_data.findall(".//link"):
+        fmt = link.attrib.get("format", "")
+        href = link.attrib.get("href", "")
+        if fmt == "pdf" and not pdf_url:
+            pdf_url = href
+        elif fmt == "tgz" and not tgz_url:
+            tgz_url = href
+    return {
+        "pmid": str(record.get("pmid") or pmid),
+        "pmcid": str(pmcid),
+        "doi": record.get("doi") or "",
+        "pdf_url": pdf_url,
+        "package_url": tgz_url,
+        "oa_url": f"https://www.ncbi.nlm.nih.gov/pmc/utils/oa/oa.fcgi?id={quote_plus(str(pmcid))}",
+    }
+
+
+def fetch_xml(url: str) -> ET.Element:
+    request = Request(
+        url,
+        headers={
+            "Accept": "application/xml",
+            "User-Agent": "genbank-single-accession-extractor/1.0",
+        },
+    )
+    try:
+        with urlopen(request) as response:
+            return ET.fromstring(response.read().decode("utf-8"))
+    except HTTPError as exc:
+        raise RuntimeError(f"Request failed with HTTP {exc.code}: {url}") from exc
+    except URLError as exc:
+        raise RuntimeError(f"Request failed for {url}: {exc.reason}") from exc
 
 
 def normalize_text(value: str) -> str:
@@ -981,6 +1322,8 @@ def main() -> int:
         print("Accession must not be empty", file=sys.stderr)
         return 2
 
+    paper_sources = collect_paper_inputs(args)
+
     output_dir = Path(args.output_dir) / accession.replace("/", "_")
     output_dir.mkdir(parents=True, exist_ok=True)
 
@@ -994,6 +1337,18 @@ def main() -> int:
         )
         if not report_files_exist(output_dir):
             export_reports(output_dir, accession)
+        if paper_sources:
+            markdown_outputs, hits = scan_paper_sources(paper_sources, accession)
+            write_paper_outputs(output_dir, accession, paper_sources, markdown_outputs, hits)
+            emit_status(
+                {
+                    "stage": "paper_files_processed",
+                    "source_count": len(paper_sources),
+                    "markdown_dir": str(output_dir / "paper_markdown"),
+                    "hit_count": len(hits),
+                    "contains_accession": bool(hits),
+                }
+            )
         print(json.dumps(cached_run["summary"], indent=2, ensure_ascii=True))
         return 0
 
@@ -1059,6 +1414,64 @@ def main() -> int:
     write_json(output_dir / "organism.json", organism_info)
     write_json(output_dir / "reference_resolution.json", reference_resolution)
 
+    primary_pmid = get_primary_pmid(enriched_references)
+    pmc_resources: dict[str, Any] = {
+        "status": "skipped",
+        "reason": "No PMID was available in the enriched references",
+    }
+    if primary_pmid:
+        try:
+            pmc_result = fetch_pmc_id_metadata(primary_pmid, args.email, args.tool)
+        except Exception as exc:
+            pmc_resources = {
+                "status": "error",
+                "pmid": primary_pmid,
+                "error": str(exc),
+            }
+        else:
+            if pmc_result:
+                pmc_resources = {
+                    "status": "completed",
+                    **pmc_result,
+                }
+                emit_status(
+                    {
+                        "stage": "pmc_resources",
+                        "pmid": pmc_result.get("pmid"),
+                        "pmcid": pmc_result.get("pmcid"),
+                        "pdf_url": pmc_result.get("pdf_url"),
+                        "package_url": pmc_result.get("package_url"),
+                    }
+                )
+                if not paper_sources:
+                    emit_status(
+                        {
+                            "stage": "paper_pdf_needed",
+                            "message": "Provide the paper PDF path with --paper-pdf to convert it to markdown and scan for accession mentions.",
+                        }
+                    )
+            else:
+                pmc_resources = {
+                    "status": "not_in_pmc",
+                    "pmid": primary_pmid,
+                    "reason": "PMC ID Converter returned no PMCID",
+                }
+
+    write_json(output_dir / "pmc_resources.json", pmc_resources)
+
+    if paper_sources:
+        markdown_outputs, hits = scan_paper_sources(paper_sources, accession)
+        write_paper_outputs(output_dir, accession, paper_sources, markdown_outputs, hits)
+        emit_status(
+            {
+                "stage": "paper_files_processed",
+                "source_count": len(paper_sources),
+                "markdown_dir": str(output_dir / "paper_markdown"),
+                "hit_count": len(hits),
+                "contains_accession": bool(hits),
+            }
+        )
+
     summary = {
         "accession_requested": accession,
         "accession_resolved": parsed["metadata"].get("accession"),
@@ -1072,7 +1485,18 @@ def main() -> int:
         "isolate": parsed["isolate"],
         "output_dir": str(output_dir),
         "openai_lookup_status": reference_resolution.get("step_4_openai_web_search_fallback", {}).get("status"),
+        "primary_pmid": primary_pmid,
+        "pmc_resources_status": pmc_resources.get("status"),
+        "paper_source_count": len(paper_sources),
     }
+    if pmc_resources.get("pmcid"):
+        summary["pmcid"] = pmc_resources.get("pmcid")
+    if pmc_resources.get("pdf_url"):
+        summary["pmc_pdf_url"] = pmc_resources.get("pdf_url")
+    if pmc_resources.get("package_url"):
+        summary["pmc_package_url"] = pmc_resources.get("package_url")
+    if paper_sources:
+        summary["paper_sources"] = [str(path) for path in paper_sources]
     write_json(output_dir / "summary.json", summary)
     export_reports(output_dir, accession)
 

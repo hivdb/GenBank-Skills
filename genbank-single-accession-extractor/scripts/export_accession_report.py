@@ -36,10 +36,13 @@ def build_report_lines(base_dir: Path) -> list[str]:
     references = read_json(base_dir / "references.json")
     resolution = read_json(base_dir / "reference_resolution.json")
     fasta_header = read_fasta_header(base_dir / "sequence.fasta")
+    pmc_resources = read_json(base_dir / "pmc_resources.json") if (base_dir / "pmc_resources.json").exists() else {}
+    paper_hits = read_json(base_dir / "paper_accession_hits.json") if (base_dir / "paper_accession_hits.json").exists() else {}
 
     ref = references[0] if references else {}
     openai_ref = ref.get("openai_lookup", {})
     qualifiers = source_feature.get("qualifiers", {})
+    paper_hit_rows = paper_hits.get("hits", []) if isinstance(paper_hits, dict) else []
 
     lines = [
         "GenBank Accession Findings",
@@ -77,6 +80,17 @@ def build_report_lines(base_dir: Path) -> list[str]:
         f"Matched source URL: {openai_ref.get('source_url')}",
         f"Matching notes: {openai_ref.get('notes')}",
         "",
+        "PMC Resources",
+        f"Primary PMID: {summary.get('primary_pmid')}",
+        f"PMCID: {pmc_resources.get('pmcid')}",
+        f"PMC PDF URL: {pmc_resources.get('pdf_url')}",
+        f"PMC package URL: {pmc_resources.get('package_url')}",
+        f"PMC OA URL: {pmc_resources.get('oa_url')}",
+        "",
+        "Paper PDF Scan",
+        f"Source count: {paper_hits.get('sources') and len(paper_hits.get('sources', [])) or 0}",
+        f"Hit count: {paper_hits.get('hit_count')}",
+        "",
         "Resolution Steps",
         f"Step 1 status: {resolution.get('step_1_keep_existing_pubmed', [{}])[0].get('status')}",
         f"Step 2 status: {resolution.get('step_2_pubmed_search', [{}])[0].get('status')}",
@@ -84,6 +98,17 @@ def build_report_lines(base_dir: Path) -> list[str]:
         f"Step 4 status: {resolution.get('step_4_openai_web_search_fallback', {}).get('status')}",
         f"OpenAI model: {resolution.get('step_4_openai_web_search_fallback', {}).get('model')}",
     ]
+    if paper_hit_rows:
+        lines.append("")
+        lines.append("Paper Hits")
+        for hit in paper_hit_rows:
+            lines.append(
+                f"- {Path(hit.get('source_file', '')).name} [{hit.get('location')}]: {hit.get('sentence')}"
+            )
+    elif paper_hits:
+        lines.append("")
+        lines.append("Paper Hits")
+        lines.append("- No sentences contained the accession")
     return lines
 
 

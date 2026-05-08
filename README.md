@@ -24,6 +24,8 @@ If you have a GenBank accession and want the GenBank record, FASTA, references, 
 Use $genbank-single-accession-extractor to download accession PV289040, extract FASTA, organism common name, and isolate metadata, and recover PMID information for references when possible.
 ```
 
+If a PMID is recovered and you want the paper resources, the agent can also resolve the PMCID and print the PMC PDF and package URLs. If you already have one or more paper files locally, give the agent the file paths or a directory and it will convert each supported file to Markdown with a local parser and scan the sentences for accession mentions.
+
 If you want to align one accession, multiple accessions, or a query FASTA file against all entries in a reference FASTA and report the best-matching gene/range, ask the agent with a prompt like:
 
 ```text
