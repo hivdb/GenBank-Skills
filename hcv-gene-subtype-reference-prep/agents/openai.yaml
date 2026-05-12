@@ -1,4 +1,4 @@
 interface:
   display_name: "HCV Gene Subtype Reference Prep"
   short_description: "Build HCV NS3/NS5A_NTD/NS5B subtype refs"
-  default_prompt: "Use $hcv-gene-subtype-reference-prep to build reusable HCV NS3, NS5A_NTD, and NS5B genotype and subtype reference FASTA files from the JSON reference datasets."
+  default_prompt: "Use $hcv-gene-subtype-reference-prep to build reusable HCV NS3, NS5A_NTD, and NS5B genotype and subtype reference FASTA files from HCV_GT_RefSeqs.fasta plus the subtype genome JSON, using codon-aware alignment."
