@@ -89,6 +89,74 @@ def accession_from_header(header: str) -> str:
     return header.split()[0]
 
 
+CODON_TABLE = {
+    "TTT": "F",
+    "TTC": "F",
+    "TTA": "L",
+    "TTG": "L",
+    "TCT": "S",
+    "TCC": "S",
+    "TCA": "S",
+    "TCG": "S",
+    "TAT": "Y",
+    "TAC": "Y",
+    "TAA": "*",
+    "TAG": "*",
+    "TGT": "C",
+    "TGC": "C",
+    "TGA": "*",
+    "TGG": "W",
+    "CTT": "L",
+    "CTC": "L",
+    "CTA": "L",
+    "CTG": "L",
+    "CCT": "P",
+    "CCC": "P",
+    "CCA": "P",
+    "CCG": "P",
+    "CAT": "H",
+    "CAC": "H",
+    "CAA": "Q",
+    "CAG": "Q",
+    "CGT": "R",
+    "CGC": "R",
+    "CGA": "R",
+    "CGG": "R",
+    "ATT": "I",
+    "ATC": "I",
+    "ATA": "I",
+    "ATG": "M",
+    "ACT": "T",
+    "ACC": "T",
+    "ACA": "T",
+    "ACG": "T",
+    "AAT": "N",
+    "AAC": "N",
+    "AAA": "K",
+    "AAG": "K",
+    "AGT": "S",
+    "AGC": "S",
+    "AGA": "R",
+    "AGG": "R",
+    "GTT": "V",
+    "GTC": "V",
+    "GTA": "V",
+    "GTG": "V",
+    "GCT": "A",
+    "GCC": "A",
+    "GCA": "A",
+    "GCG": "A",
+    "GAT": "D",
+    "GAC": "D",
+    "GAA": "E",
+    "GAG": "E",
+    "GGT": "G",
+    "GGC": "G",
+    "GGA": "G",
+    "GGG": "G",
+}
+
+
 def filename_matches_refid(filename: str, refid: str) -> bool:
     return filename.startswith(f"{refid}_")
 
@@ -252,6 +320,10 @@ def run_blastn(query_path: Path, db_prefix: Path, out_path: Path) -> list[dict[s
                 "mismatch": mismatch,
                 "gaps": gaps,
                 "bitscore": float(p[7]),
+                "qstart": int(p[8]),
+                "qend": int(p[9]),
+                "sstart": int(p[10]),
+                "send": int(p[11]),
                 "distance": (mismatch + gaps) / length if length else None,
             }
         )
@@ -283,6 +355,10 @@ def choose_best_by_subtype(
             "distance": hit["distance"],
             "aligned_nt": hit["length"],
             "bitscore": hit["bitscore"],
+            "qstart": hit["qstart"],
+            "qend": hit["qend"],
+            "sstart": hit["sstart"],
+            "send": hit["send"],
         }
         if current is None or (
             candidate["distance"],
@@ -303,6 +379,44 @@ def choose_best_by_subtype(
     return by_query
 
 
+def normalize_nt(nt: str) -> str:
+    return re.sub(r"[^ACGTRYSWKMBDHVN-]", "N", nt.upper())
+
+
+def translate_nt(sequence: str) -> str:
+    aa: list[str] = []
+    for start in range(0, len(sequence), 3):
+        codon = sequence[start : start + 3]
+        if len(codon) < 3:
+            break
+        if any(base not in "ACGT" for base in codon):
+            aa.append("X")
+        else:
+            aa.append(CODON_TABLE.get(codon, "X"))
+    return "".join(aa)
+
+
+def extract_aa_window(sequence: str, hit: dict[str, Any]) -> tuple[int, int, str]:
+    qstart = min(int(hit["qstart"]), int(hit["qend"]))
+    qend = max(int(hit["qstart"]), int(hit["qend"]))
+    sstart = min(int(hit["sstart"]), int(hit["send"]))
+    send = max(int(hit["sstart"]), int(hit["send"]))
+
+    start_aa = ((sstart - 1) // 3) + 1
+    end_aa = send // 3
+
+    leading_trim = (3 - ((sstart - 1) % 3)) % 3
+    usable_start = qstart + leading_trim
+    usable_end = qend - ((qend - usable_start + 1) % 3)
+    if usable_end < usable_start:
+        return start_aa, start_aa - 1, ""
+
+    nt_window = normalize_nt(sequence[usable_start - 1 : usable_end])
+    aa_sequence = translate_nt(nt_window)
+    end_aa = start_aa + len(aa_sequence) - 1 if aa_sequence else start_aa - 1
+    return start_aa, end_aa, aa_sequence
+
+
 def write_xlsx(path: Path, rows: list[dict[str, Any]]) -> None:
     workbook = Workbook()
     sheet = workbook.active
@@ -317,6 +431,9 @@ def write_xlsx(path: Path, rows: list[dict[str, Any]]) -> None:
         "ClosestSubtypeDistance",
         "NextClosestSubtype",
         "NextClosestSubtypeDistance",
+        "StartAAPosition",
+        "EndAAPosition",
+        "AASequence",
     ]
     sheet.append(fieldnames)
     for row in rows:
@@ -359,6 +476,7 @@ def main() -> int:
         rows_by_refid[row["RefID"]].append(row)
 
     query_entries_by_gt: dict[str, list[tuple[str, str]]] = defaultdict(list)
+    entries_by_qseqid: dict[str, str] = {}
     row_lookup: dict[str, dict[str, Any]] = {}
     skipped_missing_fasta: list[dict[str, str]] = []
     skipped_missing_sequence: list[dict[str, str]] = []
@@ -379,6 +497,7 @@ def main() -> int:
             gt = row["ClosestGT"]
             qseqid = f"{refid}|{accession}"
             query_entries_by_gt[gt].append((qseqid, sequence))
+            entries_by_qseqid[qseqid] = sequence
             row_lookup[qseqid] = row
 
     output_rows: list[dict[str, Any]] = []
@@ -400,6 +519,7 @@ def main() -> int:
                 continue
             best = subtype_hits[0]
             second = subtype_hits[1] if len(subtype_hits) > 1 else None
+            start_aa, end_aa, aa_sequence = extract_aa_window(entries_by_qseqid[qseqid], best)
             output_rows.append(
                 {
                     "RefID": row["RefID"],
@@ -411,6 +531,9 @@ def main() -> int:
                     "ClosestSubtypeDistance": best["distance"],
                     "NextClosestSubtype": second["subtype"] if second else "",
                     "NextClosestSubtypeDistance": second["distance"] if second else "",
+                    "StartAAPosition": start_aa if aa_sequence else "",
+                    "EndAAPosition": end_aa if aa_sequence else "",
+                    "AASequence": aa_sequence,
                 }
             )
         try:
