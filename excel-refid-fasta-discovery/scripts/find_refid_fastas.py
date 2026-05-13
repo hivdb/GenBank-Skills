@@ -78,7 +78,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--exclude-known-quasispecies-refids",
         action="store_true",
-        help="Exclude the built-in RefID set used by downstream genotype/subtype workflows",
+        default=True,
+        help="Exclude the built-in RefID set used by downstream genotype/subtype workflows (default: enabled)",
     )
     return parser.parse_args()
 

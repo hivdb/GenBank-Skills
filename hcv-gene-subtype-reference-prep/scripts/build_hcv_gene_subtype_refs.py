@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import json
 import re
+import shutil
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
@@ -91,8 +92,9 @@ def parse_args() -> argparse.Namespace:
 
 
 def make_job_dir(base_output_dir: Path) -> Path:
-    timestamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
-    path = base_output_dir / f"hcv_gene_subtype_refs_{timestamp}"
+    path = base_output_dir / "hcv_gene_subtype_refs"
+    if path.exists():
+        shutil.rmtree(path)
     path.mkdir(parents=True, exist_ok=True)
     return path
 

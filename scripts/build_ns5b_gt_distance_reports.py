@@ -45,9 +45,10 @@ def sanitize_label(value: str) -> str:
 
 
 def make_job_dir(base_output_dir: Path, excel_file: Path, sheet_name: str) -> Path:
-    timestamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
     label = sanitize_label(f"{excel_file.stem}_{sheet_name}_ns5b_gt_distance")
-    job_dir = base_output_dir / f"{label}_{timestamp}"
+    job_dir = base_output_dir / label
+    if job_dir.exists():
+        shutil.rmtree(job_dir)
     job_dir.mkdir(parents=True, exist_ok=True)
     return job_dir
 

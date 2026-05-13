@@ -23,7 +23,7 @@ mkdir -p /path/to/local_stage/hcv_fasta_stage_selected
 find /path/to/local_stage/hcv_fasta_stage_selected -mindepth 1 -delete
 while IFS= read -r f; do
   ln -sf "$f" "/path/to/local_stage/hcv_fasta_stage_selected/$(basename "$f")"
-done < outputs/refid_fasta_<workbook_stem>_NS3_May11_<timestamp>/matched_fasta_files.txt
+done < outputs/refid_fasta_<workbook_stem>_NS3_May11/matched_fasta_files.txt
 ```
 
 Then run:
@@ -48,7 +48,7 @@ import csv
 from pathlib import Path
 from openpyxl import Workbook
 
-base = Path("outputs/<workbook_stem>_NS3_May11_ns3_gt_distance_<timestamp>")
+base = Path("outputs/<workbook_stem>_NS3_May11_ns3_gt_distance")
 csv_path = base / "ns3_gt_distance_master.csv"
 xlsx_path = base / "NS3_Alignments_combined.xlsx"
 
@@ -67,7 +67,7 @@ PY
 
 ```bash
 ./.venv/bin/python scripts/build_ns3_subtype_distance_report.py \
-  --combined-workbook outputs/<workbook_stem>_NS3_May11_ns3_gt_distance_<timestamp>/NS3_Alignments_combined.xlsx \
+  --combined-workbook outputs/<workbook_stem>_NS3_May11_ns3_gt_distance/NS3_Alignments_combined.xlsx \
   --fasta-dir /path/to/local_stage/hcv_fasta_stage_selected \
   --subtype-json HCV_Subtype_Refs_By_Genome_NA.json
 ```
@@ -150,7 +150,86 @@ Important detail:
 - `frameshift_refinement` is disabled by default in the current reference-prep script so the run finishes reliably.
 - use `--enable-frameshift-refinement` only when you explicitly want the slower refinement pass.
 - apply study-level `RefID` exclusions during discovery so downstream GT/subtype scripts use the selected input set as-is.
-- replace `/path/to/...` and `<timestamp>` placeholders with your actual local paths and run directory names.
+- replace `/path/to/...` placeholders with your actual local paths.
+
+## Step-by-Step Workflows
+
+### NS3
+
+1. Run `excel-refid-fasta-discovery/scripts/find_refid_fastas.py` with:
+   - `--sheet NS3_May11`
+   - `--numpatients-column NumPts`
+   - `--positive-column NS3Count`
+2. Stage the matched FASTA files into a local temp directory.
+3. Run `scripts/build_ns3_gt_distance_reports.py`.
+4. Convert `ns3_gt_distance_master.csv` to `NS3_Alignments_combined.xlsx`.
+5. Run `scripts/build_ns3_subtype_distance_report.py`.
+6. Run `scripts/build_ns3_gt_aa_extraction_workbook.py`.
+7. Run `scripts/build_ns3_aa_profiles.py`.
+8. Run `scripts/build_ns3_gt_resistance_profile_summary.py`.
+9. Run `scripts/build_ns3_subtype_resistance_profile_summary.py`.
+
+Main outputs:
+
+- `NS3_Alignments_combined.xlsx`
+- `NS3_Subtype_Alignments_combined.xlsx`
+- `NS3_GT_AA_Profiles.xlsx`
+- `NS3_Subtype_AA_Profiles.xlsx`
+- `NS3_GT_Resistance_Profile_Summary.xlsx`
+- `NS3_GT_Resistance_Profile_Summary.png`
+- `NS3_Subtype_Resistance_Profile_Summary.xlsx`
+
+### NS5A
+
+Treat `NS5A_NTD` on the AA/profile side as `NS5A` for workflow purposes.
+
+1. Run `excel-refid-fasta-discovery/scripts/find_refid_fastas.py` with:
+   - `--sheet NS3_May11`
+   - `--numpatients-column NumPts`
+   - `--positive-column NS5ACount`
+2. Stage the matched FASTA files into a local temp directory.
+3. Run `scripts/build_ns5a_gt_distance_reports.py`.
+4. Convert `ns5a_gt_distance_master.csv` to `NS5A_Alignments_combined.xlsx`.
+5. Run `scripts/build_ns5a_subtype_distance_report.py`.
+6. Run `scripts/build_ns5a_gt_aa_extraction_workbook.py`.
+7. Run `scripts/build_ns5a_aa_profiles.py`.
+8. Run `scripts/build_ns5a_gt_resistance_profile_summary.py`.
+9. Run `scripts/build_ns5a_subtype_resistance_profile_summary.py`.
+
+Main outputs:
+
+- `NS5A_Alignments_combined.xlsx`
+- `NS5A_Subtype_Alignments_combined.xlsx`
+- `NS5A_GT_AA_Profiles.xlsx`
+- `NS5A_Subtype_AA_Profiles.xlsx`
+- `NS5A_GT_Resistance_Profile_Summary.xlsx`
+- `NS5A_GT_Resistance_Profile_Summary.png`
+- `NS5A_Subtype_Resistance_Profile_Summary.xlsx`
+
+### NS5B
+
+1. Run `excel-refid-fasta-discovery/scripts/find_refid_fastas.py` with:
+   - `--sheet NS3_May11`
+   - `--numpatients-column NumPts`
+   - `--positive-column NS5BCount`
+2. Stage the matched FASTA files into a local temp directory.
+3. Run `scripts/build_ns5b_gt_distance_reports.py`.
+4. Convert `ns5b_gt_distance_master.csv` to `NS5B_Alignments_combined.xlsx`.
+5. Run `scripts/build_ns5b_subtype_distance_report.py`.
+6. Run `scripts/build_ns5b_gt_aa_extraction_workbook.py`.
+7. Run `scripts/build_ns5b_aa_profiles.py`.
+8. Run `scripts/build_ns5b_gt_resistance_profile_summary.py`.
+9. Run `scripts/build_ns5b_subtype_resistance_profile_summary.py`.
+
+Main outputs:
+
+- `NS5B_Alignments_combined.xlsx`
+- `NS5B_Subtype_Alignments_combined.xlsx`
+- `NS5B_GT_AA_Profiles.xlsx`
+- `NS5B_Subtype_AA_Profiles.xlsx`
+- `NS5B_GT_Resistance_Profile_Summary.xlsx`
+- `NS5B_GT_Resistance_Profile_Summary.png`
+- `NS5B_Subtype_Resistance_Profile_Summary.xlsx`
 
 ## What `excel-refid-fasta-discovery` Does
 

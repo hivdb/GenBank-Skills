@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import json
 import re
+import shutil
 import subprocess
 from collections import defaultdict
 from datetime import datetime, timezone
@@ -38,9 +39,10 @@ def sanitize_label(value: str) -> str:
 
 
 def make_job_dir(base_output_dir: Path, workbook_path: Path) -> Path:
-    timestamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
     label = sanitize_label(f"{workbook_path.stem}_ns5a_subtype_distance")
-    job_dir = base_output_dir / f"{label}_{timestamp}"
+    job_dir = base_output_dir / label
+    if job_dir.exists():
+        shutil.rmtree(job_dir)
     job_dir.mkdir(parents=True, exist_ok=True)
     return job_dir
 
