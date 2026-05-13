@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import argparse
 import json
-import shutil
 from collections import Counter, defaultdict
 from datetime import datetime, timezone
 from pathlib import Path
@@ -14,11 +13,12 @@ from openpyxl import Workbook, load_workbook
 
 
 AA_ORDER = list("ACDEFGHIKLMNPQRSTVWY") + ["X", "*"]
+TARGET_GENE = "NS5B"
 
 
 def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Build GT and subtype NS3 amino-acid profile workbooks.")
-    parser.add_argument("--input-workbook", required=True, help="Path to NS3 AA extraction workbook.")
+    parser = argparse.ArgumentParser(description="Build GT and subtype NS5B amino-acid profile workbooks.")
+    parser.add_argument("--input-workbook", required=True, help="Path to NS5B AA extraction workbook.")
     parser.add_argument("--output-dir", default="outputs", help="Base output directory.")
     return parser.parse_args()
 
@@ -28,10 +28,9 @@ def sanitize_label(value: str) -> str:
 
 
 def make_job_dir(base_output_dir: Path, workbook_path: Path) -> Path:
-    label = sanitize_label(f"{workbook_path.stem}_ns3_aa_profiles")
-    job_dir = base_output_dir / label
-    if job_dir.exists():
-        shutil.rmtree(job_dir)
+    timestamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+    label = sanitize_label(f"{workbook_path.stem}_ns5b_aa_profiles")
+    job_dir = base_output_dir / f"{label}_{timestamp}"
     job_dir.mkdir(parents=True, exist_ok=True)
     return job_dir
 
@@ -83,7 +82,7 @@ def write_gt_workbook(path: Path, rows_by_gt: dict[str, list[dict[str, Any]]]) -
     wb.remove(wb.active)
     summary: dict[str, int] = {}
     header = [
-        "NS3Position",
+        "NS5BPosition",
         "NumSeqsIncludingPosition",
         "AminoAcid",
         "CountWithAA",
@@ -113,7 +112,7 @@ def write_subtype_workbook(path: Path, rows_by_gt_subtype: dict[str, dict[str, l
     summary: dict[str, dict[str, int]] = {}
     header = [
         "Subtype",
-        "NS3Position",
+        "NS5BPosition",
         "NumSeqsIncludingPosition",
         "AminoAcid",
         "CountWithAA",
@@ -155,14 +154,15 @@ def main() -> int:
         rows_by_gt_subtype[gt][subtype].append(row)
 
     job_dir = make_job_dir(output_dir, input_workbook)
-    gt_path = job_dir / "NS3_GT_AA_Profiles.xlsx"
-    subtype_path = job_dir / "NS3_Subtype_AA_Profiles.xlsx"
+    gt_path = job_dir / "NS5B_GT_AA_Profiles.xlsx"
+    subtype_path = job_dir / "NS5B_Subtype_AA_Profiles.xlsx"
 
     gt_summary = write_gt_workbook(gt_path, rows_by_gt)
-    subtype_summary = write_subtype_workbook(subtype_path, rows_by_gt_subtype)
+    write_subtype_workbook(subtype_path, rows_by_gt_subtype)
 
     summary = {
         "input_workbook": str(input_workbook.resolve()),
+        "gene": TARGET_GENE,
         "rows_with_aa": len(rows),
         "gt_workbook": str(gt_path.resolve()),
         "subtype_workbook": str(subtype_path.resolve()),

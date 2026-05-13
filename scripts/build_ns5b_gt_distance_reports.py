@@ -6,7 +6,6 @@ import argparse
 import csv
 import json
 import re
-import shutil
 import subprocess
 from datetime import datetime, timezone
 from pathlib import Path
@@ -17,13 +16,14 @@ from openpyxl import Workbook, load_workbook
 
 BLAST_OUTFMT = "6 qseqid sseqid length mismatch gaps pident evalue bitscore qstart qend sstart send"
 REFERENCE_GTS = tuple(str(i) for i in range(1, 9))
+TARGET_GENE = "NS5B"
 
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description=(
-            "Build per-study NS3 genotype distance reports by aligning FASTA sequences "
-            "to GT1-GT8 NS3 nucleotide references."
+            "Build per-study NS5B genotype distance reports by aligning FASTA sequences "
+            "to GT1-GT8 NS5B nucleotide references."
         )
     )
     parser.add_argument("--excel-file", required=True, help="Path to the spreadsheet")
@@ -34,7 +34,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--refid-column", default="RefID")
     parser.add_argument("--refname-column", default="RefName")
     parser.add_argument("--numpatients-column", default="NumPts")
-    parser.add_argument("--positive-column", action="append", default=["NS3Count"])
+    parser.add_argument("--positive-column", action="append", default=["NS5BCount"])
     parser.add_argument("--min-aligned-nt", type=int, default=200, help="Skip hits shorter than this overlap length")
     return parser.parse_args()
 
@@ -45,10 +45,9 @@ def sanitize_label(value: str) -> str:
 
 
 def make_job_dir(base_output_dir: Path, excel_file: Path, sheet_name: str) -> Path:
-    label = sanitize_label(f"{excel_file.stem}_{sheet_name}_ns3_gt_distance")
-    job_dir = base_output_dir / label
-    if job_dir.exists():
-        shutil.rmtree(job_dir)
+    timestamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+    label = sanitize_label(f"{excel_file.stem}_{sheet_name}_ns5b_gt_distance")
+    job_dir = base_output_dir / f"{label}_{timestamp}"
     job_dir.mkdir(parents=True, exist_ok=True)
     return job_dir
 
@@ -90,7 +89,7 @@ def accession_from_header(header: str) -> str:
     return header.split()[0]
 
 
-def load_reference_ns3(reference_fasta: Path) -> dict[str, tuple[str, str]]:
+def load_reference_ns5b(reference_fasta: Path) -> dict[str, tuple[str, str]]:
     refs: dict[str, tuple[str, str]] = {}
     for header, sequence in parse_fasta(reference_fasta):
         token = header.split()[0]
@@ -99,11 +98,11 @@ def load_reference_ns3(reference_fasta: Path) -> dict[str, tuple[str, str]]:
             continue
         gt = match.group(1)
         gene = match.group(2)
-        if gt in REFERENCE_GTS and gene == "NS3":
+        if gt in REFERENCE_GTS and gene == TARGET_GENE:
             refs[gt] = (header, sequence)
     missing = [gt for gt in REFERENCE_GTS if gt not in refs]
     if missing:
-        raise RuntimeError(f"Missing NS3 references for GTs: {', '.join(missing)}")
+        raise RuntimeError(f"Missing {TARGET_GENE} references for GTs: {', '.join(missing)}")
     return refs
 
 
@@ -184,7 +183,7 @@ def write_fasta_entries(path: Path, entries: list[tuple[str, str]]) -> None:
 
 
 def build_reference_db(job_dir: Path, refs: dict[str, tuple[str, str]]) -> tuple[Path, dict[str, str]]:
-    ref_fasta = job_dir / "ns3_gt_refs.fasta"
+    ref_fasta = job_dir / "ns5b_gt_refs.fasta"
     entries: list[tuple[str, str]] = []
     subject_id_to_gt: dict[str, str] = {}
     for gt in REFERENCE_GTS:
@@ -192,7 +191,7 @@ def build_reference_db(job_dir: Path, refs: dict[str, tuple[str, str]]) -> tuple
         subject_id_to_gt[subject_id] = gt
         entries.append((subject_id, refs[gt][1]))
     write_fasta_entries(ref_fasta, entries)
-    db_prefix = job_dir / "ns3_gt_refs_db"
+    db_prefix = job_dir / "ns5b_gt_refs_db"
     subprocess.run(
         [
             "makeblastdb",
@@ -346,7 +345,7 @@ def build_rows_for_study(
 def write_xlsx(path: Path, rows: list[dict[str, Any]]) -> None:
     workbook = Workbook()
     sheet = workbook.active
-    sheet.title = "NS3_GT_Distance"
+    sheet.title = "NS5B_GT_Distance"
     fieldnames = [
         "RefID",
         "RefName",
@@ -388,7 +387,7 @@ def main() -> int:
     reference_fasta = Path(args.reference_fasta).expanduser()
     base_output_dir = Path(args.output_dir)
 
-    refs = load_reference_ns3(reference_fasta)
+    refs = load_reference_ns5b(reference_fasta)
     studies = load_filtered_studies(
         excel_file,
         args.sheet,
@@ -400,7 +399,7 @@ def main() -> int:
     matched = find_study_fasta_files(fasta_dir, studies)
 
     job_dir = make_job_dir(base_output_dir, excel_file, args.sheet)
-    progress_dir = job_dir / "NS3_Alignments.xlsx"
+    progress_dir = job_dir / "NS5B_Alignments.xlsx"
     progress_dir.mkdir(parents=True, exist_ok=True)
     db_prefix, subject_id_to_gt = build_reference_db(job_dir, refs)
 
@@ -422,13 +421,13 @@ def main() -> int:
             }
         )
 
-    write_csv(job_dir / "ns3_gt_distance_master.csv", master_rows)
+    write_csv(job_dir / "ns5b_gt_distance_master.csv", master_rows)
     (job_dir / "study_progress.json").write_text(
         json.dumps(study_summaries, indent=2, ensure_ascii=True) + "\n",
         encoding="utf-8",
     )
     (job_dir / "workflow_request.txt").write_text(
-        Path("notes/ns3_gt_distance_workflow_2026-05-11.md").read_text(encoding="utf-8"),
+        Path("notes/ns5b_gt_distance_workflow_2026-05-13.md").read_text(encoding="utf-8"),
         encoding="utf-8",
     )
 
@@ -436,7 +435,7 @@ def main() -> int:
         "output_dir": str(job_dir.resolve()),
         "study_count": len(matched),
         "master_row_count": len(master_rows),
-        "master_csv": str((job_dir / "ns3_gt_distance_master.csv").resolve()),
+        "master_csv": str((job_dir / "ns5b_gt_distance_master.csv").resolve()),
         "xlsx_dir": str(progress_dir.resolve()),
     }
     for suffix in (".nhr", ".nin", ".nsq", ".ndb", ".not", ".ntf", ".nto"):
@@ -447,7 +446,7 @@ def main() -> int:
             except OSError:
                 pass
     try:
-        (job_dir / "ns3_gt_refs.fasta").unlink()
+        (job_dir / "ns5b_gt_refs.fasta").unlink()
     except OSError:
         pass
     print(json.dumps(payload, indent=2, ensure_ascii=True))

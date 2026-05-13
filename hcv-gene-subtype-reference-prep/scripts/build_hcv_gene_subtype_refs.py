@@ -82,6 +82,11 @@ def parse_args() -> argparse.Namespace:
         help="Path to HCV_Subtype_Refs_By_Genome_NA.json",
     )
     parser.add_argument("--output-dir", default="outputs", help="Base output directory")
+    parser.add_argument(
+        "--enable-frameshift-refinement",
+        action="store_true",
+        help="Enable the slower frameshift refinement step for sequences with stop codons",
+    )
     return parser.parse_args()
 
 
@@ -522,8 +527,11 @@ def maybe_frameshift_refine(
     query_aa_end: int,
     reference_nt: str,
     result: AlignmentResult,
+    enabled: bool,
     flank_nt: int = 15,
 ) -> AlignmentResult:
+    if not enabled:
+        return result
     initial_stop_count = len(stop_codon_positions(result.extracted_aa))
     if initial_stop_count == 0:
         return result
@@ -576,6 +584,7 @@ def maybe_frameshift_refine(
 def extract_gene_from_subtype(
     nt_sequence: str,
     reference_nt: str,
+    enable_frameshift_refinement: bool,
     preferred_frame: int | None = None,
 ) -> AlignmentResult:
     reference_aa = translate_nt(reference_nt)
@@ -636,6 +645,7 @@ def extract_gene_from_subtype(
             candidate.query_aa_end,
             reference_nt,
             candidate,
+            enabled=enable_frameshift_refinement,
         )
         if is_better_result(candidate, best, minimum_score=baseline_best.score):
             best = candidate
@@ -654,7 +664,7 @@ def build_alignment_marker(reference: str, query: str) -> str:
     return "".join(chars)
 
 
-def write_alignment_report(path: Path, alignments: list[dict[str, Any]], width_codons: int = 20) -> None:
+def write_alignment_report(path: Path, alignments: list[dict[str, Any]], width_codons: int = 68) -> None:
     with path.open("w", encoding="utf-8") as handle:
         for idx, row in enumerate(alignments, start=1):
             header = (
@@ -678,13 +688,9 @@ def write_alignment_report(path: Path, alignments: list[dict[str, Any]], width_c
             marker = build_alignment_marker(row["aligned_reference_aa"], row["aligned_query_aa"])
             for start in range(0, len(row["aligned_reference_aa"]), width_codons):
                 aa_stop = start + width_codons
-                nt_start = start * 3
-                nt_stop = aa_stop * 3
                 handle.write(f"REF_AA {start + 1:>4} {row['aligned_reference_aa'][start:aa_stop]}\n")
                 handle.write(f"MAT_AA {'':>4} {marker[start:aa_stop]}\n")
                 handle.write(f"QRY_AA {start + 1:>4} {row['aligned_query_aa'][start:aa_stop]}\n")
-                handle.write(f"REF_NT {nt_start + 1:>4} {row['aligned_reference_nt'][nt_start:nt_stop]}\n")
-                handle.write(f"QRY_NT {nt_start + 1:>4} {row['aligned_query_nt'][nt_start:nt_stop]}\n")
                 handle.write("\n")
             handle.write("\n")
 
@@ -733,7 +739,12 @@ def main() -> int:
 
         for gene in TARGET_GENES:
             reference_nt = gt_refs[(genotype, gene)]
-            result = extract_gene_from_subtype(nt_sequence, reference_nt, preferred_frame=preferred_frame)
+            result = extract_gene_from_subtype(
+                nt_sequence,
+                reference_nt,
+                enable_frameshift_refinement=args.enable_frameshift_refinement,
+                preferred_frame=preferred_frame,
+            )
             stop_positions = stop_codon_positions(result.extracted_aa)
 
             base_header = (
@@ -795,13 +806,18 @@ def main() -> int:
         write_fasta(output_dir / f"hcv_subtype_gene_refs_{gene_slug(gene)}_na.fasta", entries)
     for gene, entries in subtype_aa_entries.items():
         write_fasta(output_dir / f"hcv_subtype_gene_refs_{gene_slug(gene)}_aa.fasta", entries)
-    write_alignment_scores_xlsx(output_dir / "alignment_scores.xlsx", summary_rows)
-    write_alignment_report(output_dir / "alignment_views.txt", alignment_report_rows)
+    for gene in TARGET_GENES:
+        slug = gene_slug(gene)
+        gene_summary_rows = [row for row in summary_rows if row["gene"] == gene]
+        gene_alignment_rows = [row for row in alignment_report_rows if row["gene"] == gene]
+        write_alignment_scores_xlsx(output_dir / f"{slug}_alignment_scores.xlsx", gene_summary_rows)
+        write_alignment_report(output_dir / f"{slug}_alignment_views.txt", gene_alignment_rows)
 
     summary = {
         "gt_gene_na_fasta": str(gt_gene_na_fasta.resolve()),
         "subtype_genome_na_json": str(subtype_genome_na_json.resolve()),
         "target_genes": list(TARGET_GENES),
+        "frameshift_refinement_enabled": bool(args.enable_frameshift_refinement),
         "genotype_reference_count": sum(len(entries) for entries in gt_nt_fasta_entries.values()),
         "subtype_record_count": len(subtype_rows),
         "subtype_gene_sequence_count": sum(len(entries) for entries in subtype_nt_entries.values()),
@@ -822,8 +838,14 @@ def main() -> int:
                 gene: str((output_dir / f"hcv_subtype_gene_refs_{gene_slug(gene)}_aa.fasta").resolve())
                 for gene in TARGET_GENES
             },
-            "alignment_scores_xlsx": str((output_dir / "alignment_scores.xlsx").resolve()),
-            "alignment_views_txt": str((output_dir / "alignment_views.txt").resolve()),
+            "alignment_scores_xlsx": {
+                gene: str((output_dir / f"{gene_slug(gene)}_alignment_scores.xlsx").resolve())
+                for gene in TARGET_GENES
+            },
+            "alignment_views_txt": {
+                gene: str((output_dir / f"{gene_slug(gene)}_alignment_views.txt").resolve())
+                for gene in TARGET_GENES
+            },
         },
         "records": summary_rows,
     }

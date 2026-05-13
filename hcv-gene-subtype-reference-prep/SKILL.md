@@ -48,8 +48,12 @@ The script writes one job directory under `outputs/` containing:
 - `hcv_subtype_gene_refs_ns3_aa.fasta`
 - `hcv_subtype_gene_refs_ns5a_ntd_aa.fasta`
 - `hcv_subtype_gene_refs_ns5b_aa.fasta`
-- `alignment_scores.xlsx`: per-gene/per-subtype alignment scores and match counts
-- `alignment_views.txt`: human-readable codon-aware alignment views with amino-acid match markers
+- `ns3_alignment_scores.xlsx`
+- `ns5a_ntd_alignment_scores.xlsx`
+- `ns5b_alignment_scores.xlsx`
+- `ns3_alignment_views.txt`
+- `ns5a_ntd_alignment_views.txt`
+- `ns5b_alignment_views.txt`
 - `summary.json`: machine-readable summary of extracted genes, frames, and source records
 
 ## Operating Rules

@@ -5,28 +5,46 @@ from __future__ import annotations
 import argparse
 import json
 import re
-import shutil
 from collections import defaultdict
 from datetime import datetime, timezone
 from pathlib import Path
 
 from openpyxl import Workbook, load_workbook
 from openpyxl.styles import Alignment, Font, PatternFill
+from openpyxl.utils import get_column_letter
 from PIL import Image, ImageDraw, ImageFont
 
 
-RESISTANCE_POSITIONS = [36, 41, 43, 54, 55, 56, 80, 122, 155, 156, 158, 166, 168, 170, 175]
+DEFAULT_RESISTANCE_POSITIONS = [159, 282, 316, 320, 321, 414, 446, 553, 554, 556, 559, 561]
 EXCLUDED_AAS = {"X", "*"}
+TARGET_GENE = "NS5B"
 
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        description="Build GT-level NS3 resistance-position AA profile summary in Excel and PNG."
+        description="Build GT-level NS5B resistance-position AA profile summary in Excel and PNG."
     )
     parser.add_argument("--gt-profile-workbook", required=True)
     parser.add_argument("--gt-aa-json", required=True)
     parser.add_argument("--output-dir", default="outputs")
+    parser.add_argument(
+        "--positions",
+        default=",".join(str(pos) for pos in DEFAULT_RESISTANCE_POSITIONS),
+        help="Comma-separated amino-acid positions to summarize.",
+    )
     return parser.parse_args()
+
+
+def parse_positions(raw: str) -> list[int]:
+    positions: list[int] = []
+    for token in raw.split(","):
+        text = token.strip()
+        if not text:
+            continue
+        positions.append(int(text))
+    if not positions:
+        raise RuntimeError("At least one resistance position is required.")
+    return positions
 
 
 def sanitize_label(value: str) -> str:
@@ -34,10 +52,9 @@ def sanitize_label(value: str) -> str:
 
 
 def make_job_dir(base_output_dir: Path, workbook_path: Path) -> Path:
-    label = sanitize_label(f"{workbook_path.stem}_ns3_gt_resistance_profile")
-    job_dir = base_output_dir / label
-    if job_dir.exists():
-        shutil.rmtree(job_dir)
+    timestamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+    label = sanitize_label(f"{workbook_path.stem}_ns5b_gt_resistance_profile")
+    job_dir = base_output_dir / f"{label}_{timestamp}"
     job_dir.mkdir(parents=True, exist_ok=True)
     return job_dir
 
@@ -51,15 +68,16 @@ def load_consensus_by_gt(json_path: Path) -> dict[str, str]:
     consensus: dict[str, str] = {}
     for row in rows:
         name = str(row.get("name", ""))
-        match = re.fullmatch(r"HCV([1-8])NS3", name)
+        match = re.fullmatch(r"HCV([1-8])NS5B", name)
         if match:
             consensus[match.group(1)] = str(row.get("refSequence", "")).strip().upper()
     return consensus
 
 
-def load_gt_profile_rows(workbook_path: Path) -> dict[str, dict[int, list[tuple[str, float]]]]:
+def load_gt_profile_rows(workbook_path: Path, positions: list[int]) -> dict[str, dict[int, list[tuple[str, float]]]]:
     wb = load_workbook(workbook_path, read_only=True, data_only=True)
     result: dict[str, dict[int, list[tuple[str, float]]]] = {}
+    wanted = set(positions)
     for sheet_name in wb.sheetnames:
         gt = sheet_name.replace("GT", "")
         ws = wb[sheet_name]
@@ -69,20 +87,24 @@ def load_gt_profile_rows(workbook_path: Path) -> dict[str, dict[int, list[tuple[
             pos = int(row[0])
             aa = str(row[2])
             pct = float(row[5])
-            if pos in RESISTANCE_POSITIONS:
+            if pos in wanted:
                 by_pos[pos].append((aa, pct))
         result[gt] = by_pos
     wb.close()
     return result
 
 
-def build_grid(consensus_by_gt: dict[str, str], profile_rows: dict[str, dict[int, list[tuple[str, float]]]]) -> list[list[str]]:
+def build_grid(
+    consensus_by_gt: dict[str, str],
+    profile_rows: dict[str, dict[int, list[tuple[str, float]]]],
+    positions: list[int],
+) -> list[list[str]]:
     grid: list[list[str]] = []
     for gt in sorted(profile_rows, key=int):
         pos_variants: dict[int, list[str]] = {}
         max_depth = 0
         consensus_seq = consensus_by_gt[gt]
-        for pos in RESISTANCE_POSITIONS:
+        for pos in positions:
             consensus_aa = consensus_seq[pos - 1]
             variants = [
                 f"{aa}-{format_freq(pct)}"
@@ -92,20 +114,20 @@ def build_grid(consensus_by_gt: dict[str, str], profile_rows: dict[str, dict[int
             pos_variants[pos] = variants
             max_depth = max(max_depth, len(variants))
 
-        grid.append([f"GT{gt}"] + [""] * len(RESISTANCE_POSITIONS))
-        grid.append(["Position"] + [str(pos) for pos in RESISTANCE_POSITIONS])
-        grid.append(["Consensus"] + [consensus_seq[pos - 1] for pos in RESISTANCE_POSITIONS])
+        grid.append([f"GT{gt}"] + [""] * len(positions))
+        grid.append(["Position"] + [str(pos) for pos in positions])
+        grid.append(["Consensus"] + [consensus_seq[pos - 1] for pos in positions])
         for depth in range(max_depth):
             row = [f"Rank{depth + 1}"]
-            for pos in RESISTANCE_POSITIONS:
+            for pos in positions:
                 variants = pos_variants[pos]
                 row.append(variants[depth] if depth < len(variants) else "")
             grid.append(row)
-        grid.append([""] + [""] * len(RESISTANCE_POSITIONS))
+        grid.append([""] + [""] * len(positions))
     return grid
 
 
-def write_excel(path: Path, grid: list[list[str]]) -> None:
+def write_excel(path: Path, grid: list[list[str]], positions: list[int]) -> None:
     wb = Workbook()
     ws = wb.active
     ws.title = "GT_Resistance_Profile"
@@ -132,8 +154,8 @@ def write_excel(path: Path, grid: list[list[str]]) -> None:
         for cell in ws[row_idx]:
             cell.alignment = Alignment(horizontal="center")
 
-    for col in range(1, len(RESISTANCE_POSITIONS) + 2):
-        ws.column_dimensions[chr(64 + col)].width = 12 if col > 1 else 14
+    for col in range(1, len(positions) + 2):
+        ws.column_dimensions[get_column_letter(col)].width = 12 if col > 1 else 14
     wb.save(path)
 
 
@@ -178,21 +200,23 @@ def main() -> int:
     gt_profile_workbook = Path(args.gt_profile_workbook).expanduser()
     gt_aa_json = Path(args.gt_aa_json).expanduser()
     output_dir = Path(args.output_dir)
+    positions = parse_positions(args.positions)
 
     consensus_by_gt = load_consensus_by_gt(gt_aa_json)
-    profile_rows = load_gt_profile_rows(gt_profile_workbook)
-    grid = build_grid(consensus_by_gt, profile_rows)
+    profile_rows = load_gt_profile_rows(gt_profile_workbook, positions)
+    grid = build_grid(consensus_by_gt, profile_rows, positions)
 
     job_dir = make_job_dir(output_dir, gt_profile_workbook)
-    excel_path = job_dir / "NS3_GT_Resistance_Profile_Summary.xlsx"
-    png_path = job_dir / "NS3_GT_Resistance_Profile_Summary.png"
-    write_excel(excel_path, grid)
+    excel_path = job_dir / "NS5B_GT_Resistance_Profile_Summary.xlsx"
+    png_path = job_dir / "NS5B_GT_Resistance_Profile_Summary.png"
+    write_excel(excel_path, grid, positions)
     write_png(png_path, grid)
 
     summary = {
         "excel": str(excel_path.resolve()),
         "png": str(png_path.resolve()),
-        "positions": RESISTANCE_POSITIONS,
+        "gene": TARGET_GENE,
+        "positions": positions,
         "frequency_threshold_percent": 0.1,
     }
     (job_dir / "summary.json").write_text(json.dumps(summary, indent=2) + "\n", encoding="utf-8")

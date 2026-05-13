@@ -5,7 +5,6 @@ from __future__ import annotations
 import argparse
 import json
 import re
-import shutil
 import subprocess
 from collections import defaultdict
 from datetime import datetime, timezone
@@ -15,17 +14,17 @@ from typing import Any
 from openpyxl import Workbook, load_workbook
 
 
-BLAST_OUTFMT = "6 qseqid sseqid length mismatch gaps pident evalue bitscore qstart qend sstart send qseq sseq"
+BLAST_OUTFMT = "6 qseqid sseqid length mismatch gaps pident evalue bitscore qstart qend sstart send"
 
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description=(
-            "Build a combined NS3 subtype assignment workbook by aligning study sequences "
+            "Build a combined NS5B subtype assignment workbook by aligning study sequences "
             "to genotype-matched subtype genome references."
         )
     )
-    parser.add_argument("--combined-workbook", required=True, help="Path to NS3_Alignments_combined.xlsx")
+    parser.add_argument("--combined-workbook", required=True, help="Path to NS5B_Alignments_combined.xlsx")
     parser.add_argument("--fasta-dir", required=True, help="Directory containing study FASTA files")
     parser.add_argument("--subtype-json", required=True, help="Path to HCV_Subtype_Refs_By_Genome_NA.json")
     parser.add_argument("--output-dir", default="outputs", help="Base output directory")
@@ -39,10 +38,9 @@ def sanitize_label(value: str) -> str:
 
 
 def make_job_dir(base_output_dir: Path, workbook_path: Path) -> Path:
-    label = sanitize_label(f"{workbook_path.stem}_ns3_subtype_distance")
-    job_dir = base_output_dir / label
-    if job_dir.exists():
-        shutil.rmtree(job_dir)
+    timestamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+    label = sanitize_label(f"{workbook_path.stem}_ns5b_subtype_distance")
+    job_dir = base_output_dir / f"{label}_{timestamp}"
     job_dir.mkdir(parents=True, exist_ok=True)
     return job_dir
 
@@ -226,7 +224,7 @@ def write_fasta_entries(path: Path, entries: list[tuple[str, str]]) -> None:
 
 
 def build_subtype_db(job_dir: Path, gt: str, refs: list[dict[str, str]]) -> tuple[Path, dict[str, dict[str, str]]]:
-    fasta_path = job_dir / f"ns3_subtype_gt{gt}.fasta"
+    fasta_path = job_dir / f"ns5b_subtype_gt{gt}.fasta"
     entries: list[tuple[str, str]] = []
     subject_meta: dict[str, dict[str, str]] = {}
     for idx, ref in enumerate(refs, start=1):
@@ -237,7 +235,7 @@ def build_subtype_db(job_dir: Path, gt: str, refs: list[dict[str, str]]) -> tupl
         }
         entries.append((subject_id, ref["sequence"]))
     write_fasta_entries(fasta_path, entries)
-    db_prefix = job_dir / f"ns3_subtype_gt{gt}_db"
+    db_prefix = job_dir / f"ns5b_subtype_gt{gt}_db"
     subprocess.run(
         [
             "makeblastdb",
@@ -305,8 +303,6 @@ def run_blastn(query_path: Path, db_prefix: Path, out_path: Path) -> list[dict[s
                 "qend": int(p[9]),
                 "sstart": int(p[10]),
                 "send": int(p[11]),
-                "aligned_query_nt": p[12],
-                "aligned_subject_nt": p[13],
                 "distance": (mismatch + gaps) / length if length else None,
             }
         )
@@ -342,8 +338,6 @@ def choose_best_by_subtype(
             "qend": hit["qend"],
             "sstart": hit["sstart"],
             "send": hit["send"],
-            "aligned_query_nt": hit["aligned_query_nt"],
-            "aligned_subject_nt": hit["aligned_subject_nt"],
         }
         if current is None or (
             candidate["distance"],
@@ -368,18 +362,6 @@ def normalize_nt(nt: str) -> str:
     return re.sub(r"[^ACGTRYSWKMBDHVN-]", "N", nt.upper())
 
 
-def build_aa_marker(reference: str, query: str) -> str:
-    chars: list[str] = []
-    for ref_char, query_char in zip(reference, query):
-        if ref_char == "-" or query_char == "-":
-            chars.append(" ")
-        elif ref_char == query_char:
-            chars.append("|")
-        else:
-            chars.append(".")
-    return "".join(chars)
-
-
 def translate_nt(sequence: str) -> str:
     aa: list[str] = []
     for start in range(0, len(sequence), 3):
@@ -393,21 +375,6 @@ def translate_nt(sequence: str) -> str:
     return "".join(aa)
 
 
-def translate_aligned_nt(sequence: str) -> str:
-    aa: list[str] = []
-    for start in range(0, len(sequence), 3):
-        codon = sequence[start : start + 3]
-        if len(codon) < 3:
-            break
-        if codon == "---":
-            aa.append("-")
-        elif "-" in codon or any(base not in "ACGT" for base in codon):
-            aa.append("X")
-        else:
-            aa.append(CODON_TABLE.get(codon, "X"))
-    return "".join(aa)
-
-
 def extract_aa_window(sequence: str, hit: dict[str, Any]) -> tuple[int, int, str]:
     qstart = min(int(hit["qstart"]), int(hit["qend"]))
     qend = max(int(hit["qstart"]), int(hit["qend"]))
@@ -415,8 +382,6 @@ def extract_aa_window(sequence: str, hit: dict[str, Any]) -> tuple[int, int, str
     send = max(int(hit["sstart"]), int(hit["send"]))
 
     start_aa = ((sstart - 1) // 3) + 1
-    end_aa = send // 3
-
     leading_trim = (3 - ((sstart - 1) % 3)) % 3
     usable_start = qstart + leading_trim
     usable_end = qend - ((qend - usable_start + 1) % 3)
@@ -432,7 +397,7 @@ def extract_aa_window(sequence: str, hit: dict[str, Any]) -> tuple[int, int, str
 def write_xlsx(path: Path, rows: list[dict[str, Any]]) -> None:
     workbook = Workbook()
     sheet = workbook.active
-    sheet.title = "NS3_Subtype_Distance"
+    sheet.title = "NS5B_Subtype_Distance"
     fieldnames = [
         "RefID",
         "RefName",
@@ -443,8 +408,6 @@ def write_xlsx(path: Path, rows: list[dict[str, Any]]) -> None:
         "ClosestSubtypeDistance",
         "NextClosestSubtype",
         "NextClosestSubtypeDistance",
-        "AlignedNT",
-        "NextClosestSubtypeAlignedNT",
         "StartAAPosition",
         "EndAAPosition",
         "AASequence",
@@ -457,7 +420,7 @@ def write_xlsx(path: Path, rows: list[dict[str, Any]]) -> None:
 
 def cleanup_db_files(job_dir: Path) -> None:
     for path in job_dir.iterdir():
-        if path.name.startswith("ns3_subtype_gt") and path.suffix in {
+        if path.name.startswith("ns5b_subtype_gt") and path.suffix in {
             ".fasta",
             ".nhr",
             ".nin",
@@ -519,10 +482,10 @@ def main() -> int:
         refs = refs_by_gt.get(gt, [])
         if not refs:
             continue
-        query_fasta = job_dir / f"ns3_queries_gt{gt}.fasta"
+        query_fasta = job_dir / f"ns5b_queries_gt{gt}.fasta"
         write_fasta_entries(query_fasta, entries)
         db_prefix, subject_meta = build_subtype_db(job_dir, gt, refs)
-        hits = run_blastn(query_fasta, db_prefix, job_dir / f"ns3_gt{gt}.blast.tsv")
+        hits = run_blastn(query_fasta, db_prefix, job_dir / f"ns5b_gt{gt}.blast.tsv")
         hits_by_query = choose_best_by_subtype(hits, subject_meta, args.min_aligned_nt)
 
         for qseqid, row in row_lookup.items():
@@ -545,13 +508,9 @@ def main() -> int:
                     "ClosestSubtypeDistance": best["distance"],
                     "NextClosestSubtype": second["subtype"] if second else "",
                     "NextClosestSubtypeDistance": second["distance"] if second else "",
-                    "AlignedNT": best["aligned_nt"],
-                    "NextClosestSubtypeAlignedNT": second["aligned_nt"] if second else "",
                     "StartAAPosition": start_aa if aa_sequence else "",
                     "EndAAPosition": end_aa if aa_sequence else "",
                     "AASequence": aa_sequence,
-                    "AlignedQueryNT": best["aligned_query_nt"],
-                    "AlignedSubjectNT": best["aligned_subject_nt"],
                 }
             )
         try:
@@ -560,10 +519,10 @@ def main() -> int:
             pass
 
     output_rows.sort(key=lambda row: (int(row["RefID"]), row["AccessionID"]))
-    workbook_path = job_dir / "NS3_Subtype_Alignments_combined.xlsx"
+    workbook_path = job_dir / "NS5B_Subtype_Alignments_combined.xlsx"
     write_xlsx(workbook_path, output_rows)
     (job_dir / "workflow_request.txt").write_text(
-        Path("notes/ns3_subtype_distance_workflow_2026-05-11.md").read_text(encoding="utf-8"),
+        Path("notes/ns5b_subtype_distance_workflow_2026-05-13.md").read_text(encoding="utf-8"),
         encoding="utf-8",
     )
     summary = {

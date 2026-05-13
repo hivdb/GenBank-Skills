@@ -7,6 +7,8 @@ description: Use this skill when the user has an Excel workbook tab with a RefID
 
 Use this skill when the task is to read one worksheet from an Excel workbook, keep only rows where `NumPatients > 0`, collect the corresponding `RefID` values, and find FASTA files in a local directory whose filenames begin with those `RefID` values.
 
+Use this step as the single place for study-level `RefID` exclusions, including the built-in quasispecies-like exclusion set when needed, so downstream genotype/subtype counts stay consistent.
+
 ## Workflow
 
 1. Identify the required inputs.
@@ -19,6 +21,12 @@ Use this skill when the task is to read one worksheet from an Excel workbook, ke
 
 ```bash
 uv run python excel-refid-fasta-discovery/scripts/find_refid_fastas.py --excel-file /path/to/workbook.xlsx --sheet TabName --fasta-dir /path/to/fasta_dir
+```
+
+With the built-in quasispecies exclusions applied upstream:
+
+```bash
+uv run python excel-refid-fasta-discovery/scripts/find_refid_fastas.py --excel-file /path/to/workbook.xlsx --sheet TabName --fasta-dir /path/to/fasta_dir --exclude-known-quasispecies-refids
 ```
 
 3. Review the outputs.
@@ -45,6 +53,8 @@ The script writes one job directory under `outputs/` containing:
 - Treat `NumPatients` as valid only when it can be parsed as a number.
 - Keep only rows where the parsed numeric value is strictly greater than `0`.
 - Treat blank or missing `RefID` values as unusable and skip them.
+- Support explicit `RefID` exclusions with `--exclude-refid`.
+- Support the built-in quasispecies exclusion set with `--exclude-known-quasispecies-refids`.
 - Match FASTA files by filename prefix, using the basename only.
 - Search recursively under `--fasta-dir`.
 - Default columns are `RefID` and `NumPatients`, but allow overrides when the workbook uses different headers.

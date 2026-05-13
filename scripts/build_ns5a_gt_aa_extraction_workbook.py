@@ -34,11 +34,13 @@ CODON_TABLE = {
     "GGT": "G", "GGC": "G", "GGA": "G", "GGG": "G",
 }
 COMPLEMENT = str.maketrans("ACGTRYSWKMBDHVNacgtryswkmbdhvn", "TGCAYRSWMKVHDBNtgcayrswmkvhdbn")
+TARGET_GENE = "NS5A"
+AA_REF_GENE = "NS5A_NTD"
 
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        description="Add GT-guided NS3 amino-acid extraction columns to the subtype workbook."
+        description="Add GT-guided NS5A amino-acid extraction columns to the subtype workbook."
     )
     parser.add_argument("--subtype-workbook", required=True)
     parser.add_argument("--fasta-dir", required=True)
@@ -54,10 +56,9 @@ def sanitize_label(value: str) -> str:
 
 
 def make_job_dir(base_output_dir: Path, workbook_path: Path) -> Path:
-    label = sanitize_label(f"{workbook_path.stem}_ns3_gt_aa_extraction")
-    job_dir = base_output_dir / label
-    if job_dir.exists():
-        shutil.rmtree(job_dir)
+    timestamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+    label = sanitize_label(f"{workbook_path.stem}_ns5a_gt_aa_extraction")
+    job_dir = base_output_dir / f"{label}_{timestamp}"
     job_dir.mkdir(parents=True, exist_ok=True)
     return job_dir
 
@@ -109,13 +110,13 @@ def load_gt_refs(json_path: Path) -> dict[str, str]:
     refs: dict[str, str] = {}
     for row in rows:
         name = str(row.get("name", ""))
-        match = re.fullmatch(r"HCV([1-8])NS3", name)
+        match = re.fullmatch(r"HCV([1-8])NS5A_NTD", name)
         if not match:
             continue
         refs[match.group(1)] = str(row.get("refSequence", "")).strip().upper()
     missing = [gt for gt in map(str, range(1, 9)) if gt not in refs]
     if missing:
-        raise RuntimeError(f"Missing NS3 AA refs for GTs: {', '.join(missing)}")
+        raise RuntimeError(f"Missing NS5A_NTD AA refs for GTs: {', '.join(missing)}")
     return refs
 
 
@@ -164,9 +165,9 @@ def write_fasta(path: Path, entries: list[tuple[str, str]]) -> None:
 
 
 def build_gt_db(job_dir: Path, gt: str, aa_sequence: str) -> Path:
-    ref_fasta = job_dir / f"gt{gt}_ns3_aa.fasta"
-    write_fasta(ref_fasta, [(f"GT{gt}_NS3", aa_sequence)])
-    db_prefix = job_dir / f"gt{gt}_ns3_aa_db"
+    ref_fasta = job_dir / f"gt{gt}_ns5a_ntd_aa.fasta"
+    write_fasta(ref_fasta, [(f"GT{gt}_NS5A_NTD", aa_sequence)])
+    db_prefix = job_dir / f"gt{gt}_ns5a_ntd_aa_db"
     subprocess.run(
         ["makeblastdb", "-in", str(ref_fasta), "-dbtype", "prot", "-out", str(db_prefix), "-parse_seqids"],
         check=True,
@@ -259,30 +260,24 @@ def extract_aa(sequence: str, hit: dict[str, Any]) -> tuple[int, int, str]:
     return start_aa, end_aa, aa_sequence
 
 
-def write_workbook(path: Path, header: list[str], rows: list[dict[str, Any]]) -> None:
-    wb = Workbook()
-    ws = wb.active
-    ws.title = "NS3_Subtype_Distance"
-    base_header = [col for col in header if col not in {"StartAAPosition", "EndAAPosition", "AASequence"}]
-    full_header = base_header + ["StartAAPosition", "EndAAPosition", "AASequence"]
-    ws.append(full_header)
-    for row in rows:
-        ws.append([row.get(col, "") for col in full_header])
-    wb.save(path)
-
-
-def cleanup_job_dir(job_dir: Path) -> None:
+def cleanup_db_files(job_dir: Path) -> None:
     for path in job_dir.iterdir():
-        if path.name.startswith("gt") and path.suffix in {".fasta", ".phr", ".pin", ".pog", ".psq", ".pto", ".ptf", ".pot"}:
+        if path.name.startswith("gt") and "_ns5a_ntd_aa" in path.name:
             try:
                 path.unlink()
             except OSError:
                 pass
-        if path.name.startswith("queries_gt") and path.suffix == ".fasta":
-            try:
-                path.unlink()
-            except OSError:
-                pass
+
+
+def write_output(path: Path, header: list[str], rows: list[dict[str, Any]]) -> None:
+    workbook = Workbook()
+    sheet = workbook.active
+    sheet.title = "NS5A_GT_AA_Extraction"
+    output_header = header + ["StartAAPosition", "EndAAPosition", "AASequence"]
+    sheet.append(output_header)
+    for row in rows:
+        sheet.append([row.get(col, "") for col in header] + [row.get("StartAAPosition", ""), row.get("EndAAPosition", ""), row.get("AASequence", "")])
+    workbook.save(path)
 
 
 def main() -> int:
@@ -292,66 +287,68 @@ def main() -> int:
     gt_aa_json = Path(args.gt_aa_json).expanduser()
     output_dir = Path(args.output_dir)
 
-    header, rows = load_subtype_rows(subtype_workbook)
+    header, subtype_rows = load_subtype_rows(subtype_workbook)
     gt_refs = load_gt_refs(gt_aa_json)
     refid_to_fasta = build_refid_to_fasta(fasta_dir)
     job_dir = make_job_dir(output_dir, subtype_workbook)
 
     rows_by_gt: dict[str, list[dict[str, Any]]] = defaultdict(list)
-    for row in rows:
+    for row in subtype_rows:
         rows_by_gt[row["ClosestGT"]].append(row)
 
-    fasta_cache: dict[str, dict[str, str]] = {}
-    results: dict[tuple[str, str], tuple[int, int, str]] = {}
-    summary: dict[str, Any] = {"input_rows": len(rows), "by_gt": {}}
-
-    for gt, group_rows in sorted(rows_by_gt.items(), key=lambda item: int(item[0])):
+    output_rows: list[dict[str, Any]] = []
+    for gt, rows in sorted(rows_by_gt.items(), key=lambda item: int(item[0])):
+        db_prefix = build_gt_db(job_dir, gt, gt_refs[gt])
         query_entries: list[tuple[str, str]] = []
-        seq_by_qseqid: dict[str, str] = {}
-        for row in group_rows:
+        sequence_by_qseqid: dict[str, str] = {}
+
+        for row in rows:
             fasta_path = refid_to_fasta.get(row["RefID"])
             if fasta_path is None:
                 continue
-            fasta_map = fasta_cache.get(row["RefID"])
-            if fasta_map is None:
-                fasta_map = {accession_from_header(h): s for h, s in parse_fasta(fasta_path)}
-                fasta_cache[row["RefID"]] = fasta_map
-            seq = fasta_map.get(row["AccessionID"])
-            if not seq:
+            sequence_by_accession = {accession_from_header(h): seq for h, seq in parse_fasta(fasta_path)}
+            sequence = sequence_by_accession.get(row["AccessionID"])
+            if not sequence:
                 continue
             qseqid = f"{row['RefID']}|{row['AccessionID']}"
-            query_entries.append((qseqid, seq))
-            seq_by_qseqid[qseqid] = seq
+            query_entries.append((qseqid, sequence))
+            sequence_by_qseqid[qseqid] = sequence
 
-        query_fasta = job_dir / f"queries_gt{gt}.fasta"
+        if not query_entries:
+            continue
+
+        query_fasta = job_dir / f"ns5a_queries_gt{gt}.fasta"
         write_fasta(query_fasta, query_entries)
-        db_prefix = build_gt_db(job_dir, gt, gt_refs[gt])
-        hits = run_blastx(query_fasta, db_prefix, job_dir / f"queries_gt{gt}.blast.tsv")
+        hits = run_blastx(query_fasta, db_prefix, job_dir / f"ns5a_gt{gt}.blast.tsv")
         best_hits = choose_best_hits(hits, args.min_aa_overlap)
 
-        extracted = 0
-        for qseqid, hit in best_hits.items():
-            start_aa, end_aa, aa_sequence = extract_aa(seq_by_qseqid[qseqid], hit)
-            results[tuple(qseqid.split("|", 1))] = (start_aa, end_aa, aa_sequence)
-            extracted += 1
-        summary["by_gt"][gt] = {"queries": len(query_entries), "extracted": extracted}
+        for row in rows:
+            qseqid = f"{row['RefID']}|{row['AccessionID']}"
+            hit = best_hits.get(qseqid)
+            if hit is None:
+                continue
+            start_aa, end_aa, aa_sequence = extract_aa(sequence_by_qseqid[qseqid], hit)
+            output_row = dict(row)
+            output_row["StartAAPosition"] = start_aa if aa_sequence else ""
+            output_row["EndAAPosition"] = end_aa if aa_sequence else ""
+            output_row["AASequence"] = aa_sequence
+            output_rows.append(output_row)
+        try:
+            query_fasta.unlink()
+        except OSError:
+            pass
 
-    for row in rows:
-        key = (row["RefID"], row["AccessionID"])
-        value = results.get(key)
-        if value is None:
-            row["StartAAPosition"] = ""
-            row["EndAAPosition"] = ""
-            row["AASequence"] = ""
-        else:
-            row["StartAAPosition"], row["EndAAPosition"], row["AASequence"] = value
-
-    out_path = job_dir / "NS3_Subtype_Alignments_with_GT_AA_Extraction.xlsx"
-    write_workbook(out_path, header, rows)
-    summary["output_workbook"] = str(out_path.resolve())
-    summary["rows_with_aa"] = sum(1 for row in rows if row.get("AASequence"))
+    output_rows.sort(key=lambda row: (int(row["RefID"]), row["AccessionID"]))
+    workbook_path = job_dir / "NS5A_Subtype_With_GT_AA.xlsx"
+    write_output(workbook_path, header, output_rows)
+    summary = {
+        "output_workbook": str(workbook_path.resolve()),
+        "gene": TARGET_GENE,
+        "rows_with_aa": len(output_rows),
+        "min_aa_overlap": args.min_aa_overlap,
+    }
     (job_dir / "summary.json").write_text(json.dumps(summary, indent=2) + "\n", encoding="utf-8")
-    cleanup_job_dir(job_dir)
+    cleanup_db_files(job_dir)
     print(json.dumps(summary, indent=2))
     return 0
 

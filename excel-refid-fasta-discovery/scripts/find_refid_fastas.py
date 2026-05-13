@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import json
 import re
+import shutil
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -21,6 +22,27 @@ DEFAULT_FASTA_EXTENSIONS = {
     ".ffn",
     ".frn",
     ".seq",
+}
+KNOWN_QUASISPECIES_REFIDS = {
+    "19",
+    "31",
+    "32",
+    "34",
+    "70",
+    "81",
+    "115",
+    "262",
+    "1044",
+    "2043",
+    "2071",
+    "2129",
+    "2139",
+    "2175",
+    "2195",
+    "2212",
+    "2216",
+    "2225",
+    "2324",
 }
 
 
@@ -47,6 +69,17 @@ def parse_args() -> argparse.Namespace:
         default=[],
         help="Additional column that must be numeric and greater than 0; repeat for multiple columns",
     )
+    parser.add_argument(
+        "--exclude-refid",
+        action="append",
+        default=[],
+        help="RefID to exclude after filtering; repeat for multiple RefIDs",
+    )
+    parser.add_argument(
+        "--exclude-known-quasispecies-refids",
+        action="store_true",
+        help="Exclude the built-in RefID set used by downstream genotype/subtype workflows",
+    )
     return parser.parse_args()
 
 
@@ -56,9 +89,10 @@ def sanitize_label(value: str) -> str:
 
 
 def make_job_dir(base_output_dir: Path, excel_file: Path, sheet_name: str) -> Path:
-    timestamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
     label = sanitize_label(f"{excel_file.stem}_{sheet_name}")
-    job_dir = base_output_dir / f"refid_fasta_{label}_{timestamp}"
+    job_dir = base_output_dir / f"refid_fasta_{label}"
+    if job_dir.exists():
+        shutil.rmtree(job_dir)
     job_dir.mkdir(parents=True, exist_ok=True)
     return job_dir
 
@@ -87,6 +121,7 @@ def load_matching_refids(
     refid_column: str,
     numpatients_column: str,
     positive_columns: list[str],
+    excluded_refids: set[str],
 ) -> tuple[list[str], list[dict[str, Any]], dict[str, Any]]:
     workbook = load_workbook(excel_file, read_only=True, data_only=True)
     if sheet_name not in workbook.sheetnames:
@@ -119,6 +154,7 @@ def load_matching_refids(
     skipped_non_numeric = 0
     skipped_missing_refid = 0
     skipped_additional_positive_filter = 0
+    skipped_excluded_refid = 0
 
     for row in rows[1:]:
         scanned_rows += 1
@@ -146,6 +182,9 @@ def load_matching_refids(
         if not refid:
             skipped_missing_refid += 1
             continue
+        if refid in excluded_refids:
+            skipped_excluded_refid += 1
+            continue
 
         qualifying_rows += 1
         matching_refids.append(refid)
@@ -165,6 +204,7 @@ def load_matching_refids(
         "skipped_non_numeric_numpatients": skipped_non_numeric,
         "skipped_missing_refid": skipped_missing_refid,
         "skipped_additional_positive_filter": skipped_additional_positive_filter,
+        "skipped_excluded_refid": skipped_excluded_refid,
     }
     return matching_refids, matching_rows, diagnostics
 
@@ -215,6 +255,10 @@ def main() -> int:
     if not fasta_dir.is_dir():
         raise RuntimeError(f"FASTA directory was not found or is not a directory: {fasta_dir}")
 
+    excluded_refids = set(args.exclude_refid)
+    if args.exclude_known_quasispecies_refids:
+        excluded_refids.update(KNOWN_QUASISPECIES_REFIDS)
+
     base_output_dir.mkdir(parents=True, exist_ok=True)
     job_dir = make_job_dir(base_output_dir, excel_file, args.sheet)
 
@@ -224,6 +268,7 @@ def main() -> int:
         args.refid_column,
         args.numpatients_column,
         args.positive_column,
+        excluded_refids,
     )
     matched_files, files_by_refid = find_matching_files(fasta_dir, refids)
 
@@ -239,6 +284,7 @@ def main() -> int:
         "fasta_dir": str(fasta_dir.resolve()),
         "refid_column": args.refid_column,
         "numpatients_column": args.numpatients_column,
+        "excluded_refids": sorted(excluded_refids),
         "refid_count": len(refids),
         "matched_file_count": len(matched_files),
         "matched_filenames": matched_filenames,

@@ -1,9 +1,9 @@
-Create a combined NS3 subtype assignment workbook from the existing NS3 genotype workbook.
+Create a combined NS5B subtype assignment workbook from the existing NS5B genotype workbook.
 
 Inputs:
-- `NS3_Alignments_combined.xlsx`
+- `NS5B_Alignments_combined.xlsx`
 - `HCV_Subtype_Refs_By_Genome_NA.json`
-- the study FASTA directory used for the NS3 genotype workflow
+- the study FASTA directory used for the NS5B genotype workflow
 
 Requirements:
 - assume excluded quasispecies `RefID`s were already removed upstream during discovery/filtering
@@ -19,8 +19,9 @@ Output rows:
 - `ClosestSubtype`
 - `ClosestSubtypeDistance`
 - `NextClosestSubtypeDistance`
-- `AlignedNT`
-- `NextClosestSubtypeAlignedNT`
+- `StartAAPosition`
+- `EndAAPosition`
+- `AASequence`
 
 Behavior:
 - if multiple reference genomes exist for the same subtype, keep the best hit for that subtype

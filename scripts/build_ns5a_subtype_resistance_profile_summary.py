@@ -6,28 +6,47 @@ import argparse
 import json
 import math
 import re
-import shutil
 from collections import defaultdict
 from datetime import datetime, timezone
 from pathlib import Path
 
 from openpyxl import Workbook, load_workbook
 from openpyxl.styles import Alignment, Font, PatternFill
+from openpyxl.utils import get_column_letter
 
 
-RESISTANCE_POSITIONS = [36, 41, 43, 54, 55, 56, 80, 122, 155, 156, 158, 166, 168, 170, 175]
+DEFAULT_RESISTANCE_POSITIONS = [24, 28, 30, 31, 32, 58, 92, 93]
 EXCLUDED_AAS = {"X", "*"}
+TARGET_GENE = "NS5A"
+AA_REF_GENE = "NS5A_NTD"
 
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        description="Build subtype-level NS3 resistance-position AA profile summary in Excel."
+        description="Build subtype-level NS5A resistance-position AA profile summary in Excel."
     )
     parser.add_argument("--subtype-profile-workbook", required=True)
     parser.add_argument("--gt-aa-json", required=True)
     parser.add_argument("--output-dir", default="outputs")
     parser.add_argument("--min-sequences", type=int, default=10)
+    parser.add_argument(
+        "--positions",
+        default=",".join(str(pos) for pos in DEFAULT_RESISTANCE_POSITIONS),
+        help="Comma-separated amino-acid positions to summarize.",
+    )
     return parser.parse_args()
+
+
+def parse_positions(raw: str) -> list[int]:
+    positions: list[int] = []
+    for token in raw.split(","):
+        text = token.strip()
+        if not text:
+            continue
+        positions.append(int(text))
+    if not positions:
+        raise RuntimeError("At least one resistance position is required.")
+    return positions
 
 
 def sanitize_label(value: str) -> str:
@@ -35,10 +54,9 @@ def sanitize_label(value: str) -> str:
 
 
 def make_job_dir(base_output_dir: Path, workbook_path: Path) -> Path:
-    label = sanitize_label(f"{workbook_path.stem}_ns3_subtype_resistance_profile")
-    job_dir = base_output_dir / label
-    if job_dir.exists():
-        shutil.rmtree(job_dir)
+    timestamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+    label = sanitize_label(f"{workbook_path.stem}_ns5a_subtype_resistance_profile")
+    job_dir = base_output_dir / f"{label}_{timestamp}"
     job_dir.mkdir(parents=True, exist_ok=True)
     return job_dir
 
@@ -59,16 +77,20 @@ def load_consensus_by_gt(json_path: Path) -> dict[str, str]:
     consensus: dict[str, str] = {}
     for row in rows:
         name = str(row.get("name", ""))
-        match = re.fullmatch(r"HCV([1-8])NS3", name)
+        match = re.fullmatch(r"HCV([1-8])NS5A_NTD", name)
         if match:
             consensus[match.group(1)] = str(row.get("refSequence", "")).strip().upper()
     return consensus
 
 
-def load_subtype_profile_rows(workbook_path: Path) -> tuple[dict[str, dict[str, dict[int, list[tuple[str, float]]]]], dict[str, dict[str, int]]]:
+def load_subtype_profile_rows(
+    workbook_path: Path,
+    positions: list[int],
+) -> tuple[dict[str, dict[str, dict[int, list[tuple[str, float]]]]], dict[str, dict[str, int]]]:
     wb = load_workbook(workbook_path, read_only=True, data_only=True)
     profile_rows: dict[str, dict[str, dict[int, list[tuple[str, float]]]]] = defaultdict(lambda: defaultdict(lambda: defaultdict(list)))
     subtype_counts: dict[str, dict[str, int]] = defaultdict(dict)
+    wanted = set(positions)
     for sheet_name in wb.sheetnames:
         gt = sheet_name.replace("GT", "")
         ws = wb[sheet_name]
@@ -79,7 +101,7 @@ def load_subtype_profile_rows(workbook_path: Path) -> tuple[dict[str, dict[str, 
             denom = int(row[2])
             aa = str(row[3])
             pct = float(row[6])
-            if pos in RESISTANCE_POSITIONS:
+            if pos in wanted:
                 profile_rows[gt][subtype][pos].append((aa, pct))
             current = subtype_counts[gt].get(subtype, 0)
             if denom > current:
@@ -93,6 +115,7 @@ def build_grid(
     profile_rows: dict[str, dict[str, dict[int, list[tuple[str, float]]]]],
     subtype_counts: dict[str, dict[str, int]],
     min_sequences: int,
+    positions: list[int],
 ) -> list[list[str]]:
     grid: list[list[str]] = []
     ordered_subtypes: list[tuple[str, str]] = []
@@ -105,7 +128,7 @@ def build_grid(
         consensus_seq = consensus_by_gt[gt]
         pos_variants: dict[int, list[str]] = {}
         max_depth = 0
-        for pos in RESISTANCE_POSITIONS:
+        for pos in positions:
             consensus_aa = consensus_seq[pos - 1]
             variants = [
                 f"{aa}-{format_freq(pct)}"
@@ -115,20 +138,20 @@ def build_grid(
             pos_variants[pos] = variants
             max_depth = max(max_depth, len(variants))
 
-        grid.append([f"GT{gt}_{subtype} ({subtype_counts[gt][subtype]})"] + [""] * len(RESISTANCE_POSITIONS))
-        grid.append(["Position"] + [str(pos) for pos in RESISTANCE_POSITIONS])
-        grid.append(["Consensus"] + [consensus_seq[pos - 1] for pos in RESISTANCE_POSITIONS])
+        grid.append([f"GT{gt}_{subtype} ({subtype_counts[gt][subtype]})"] + [""] * len(positions))
+        grid.append(["Position"] + [str(pos) for pos in positions])
+        grid.append(["Consensus"] + [consensus_seq[pos - 1] for pos in positions])
         for depth in range(max_depth):
             row = [f"Rank{depth + 1}"]
-            for pos in RESISTANCE_POSITIONS:
+            for pos in positions:
                 variants = pos_variants[pos]
                 row.append(variants[depth] if depth < len(variants) else "")
             grid.append(row)
-        grid.append([""] + [""] * len(RESISTANCE_POSITIONS))
+        grid.append([""] + [""] * len(positions))
     return grid
 
 
-def write_excel(path: Path, grid: list[list[str]]) -> None:
+def write_excel(path: Path, grid: list[list[str]], positions: list[int]) -> None:
     wb = Workbook()
     ws = wb.active
     ws.title = "Subtype_Resistance_Profile"
@@ -155,8 +178,7 @@ def write_excel(path: Path, grid: list[list[str]]) -> None:
         for cell in ws[row_idx]:
             cell.alignment = Alignment(horizontal="center")
 
-    from openpyxl.utils import get_column_letter
-    for col in range(1, len(RESISTANCE_POSITIONS) + 2):
+    for col in range(1, len(positions) + 2):
         ws.column_dimensions[get_column_letter(col)].width = 12 if col > 1 else 18
     wb.save(path)
 
@@ -166,14 +188,15 @@ def main() -> int:
     subtype_profile_workbook = Path(args.subtype_profile_workbook).expanduser()
     gt_aa_json = Path(args.gt_aa_json).expanduser()
     output_dir = Path(args.output_dir)
+    positions = parse_positions(args.positions)
 
     consensus_by_gt = load_consensus_by_gt(gt_aa_json)
-    profile_rows, subtype_counts = load_subtype_profile_rows(subtype_profile_workbook)
-    grid = build_grid(consensus_by_gt, profile_rows, subtype_counts, args.min_sequences)
+    profile_rows, subtype_counts = load_subtype_profile_rows(subtype_profile_workbook, positions)
+    grid = build_grid(consensus_by_gt, profile_rows, subtype_counts, args.min_sequences, positions)
 
     job_dir = make_job_dir(output_dir, subtype_profile_workbook)
-    excel_path = job_dir / "NS3_Subtype_Resistance_Profile_Summary.xlsx"
-    write_excel(excel_path, grid)
+    excel_path = job_dir / "NS5A_Subtype_Resistance_Profile_Summary.xlsx"
+    write_excel(excel_path, grid, positions)
 
     included = []
     for gt in sorted(subtype_counts, key=int):
@@ -183,7 +206,8 @@ def main() -> int:
 
     summary = {
         "excel": str(excel_path.resolve()),
-        "positions": RESISTANCE_POSITIONS,
+        "gene": TARGET_GENE,
+        "positions": positions,
         "frequency_threshold_percent": 0.1,
         "min_sequences": args.min_sequences,
         "included_subtypes": included,
