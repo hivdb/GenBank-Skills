@@ -7,6 +7,7 @@ import json
 import re
 import shutil
 import subprocess
+import tempfile
 from collections import defaultdict
 from datetime import datetime, timezone
 from pathlib import Path
@@ -56,11 +57,14 @@ def sanitize_label(value: str) -> str:
 
 def make_job_dir(base_output_dir: Path, workbook_path: Path) -> Path:
     label = sanitize_label(f"{workbook_path.stem}_ns3_gt_aa_extraction")
-    job_dir = base_output_dir / label
-    if job_dir.exists():
-        shutil.rmtree(job_dir)
-    job_dir.mkdir(parents=True, exist_ok=True)
-    return job_dir
+    base_output_dir.mkdir(parents=True, exist_ok=True)
+    return Path(tempfile.mkdtemp(prefix=f"{label}_", dir=base_output_dir))
+
+
+def make_temp_output_path(filename: str) -> Path:
+    handle = tempfile.NamedTemporaryFile(prefix="tmp_", suffix=f"_{filename}", delete=False)
+    handle.close()
+    return Path(handle.name)
 
 
 def parse_fasta(path: Path) -> list[tuple[str, str]]:
@@ -347,12 +351,12 @@ def main() -> int:
         else:
             row["StartAAPosition"], row["EndAAPosition"], row["AASequence"] = value
 
-    out_path = job_dir / "NS3_Subtype_Alignments_with_GT_AA_Extraction.xlsx"
+    out_path = make_temp_output_path("NS3_Subtype_Alignments_with_GT_AA_Extraction.xlsx")
     write_workbook(out_path, header, rows)
     summary["output_workbook"] = str(out_path.resolve())
     summary["rows_with_aa"] = sum(1 for row in rows if row.get("AASequence"))
-    (job_dir / "summary.json").write_text(json.dumps(summary, indent=2) + "\n", encoding="utf-8")
     cleanup_job_dir(job_dir)
+    shutil.rmtree(job_dir, ignore_errors=True)
     print(json.dumps(summary, indent=2))
     return 0
 

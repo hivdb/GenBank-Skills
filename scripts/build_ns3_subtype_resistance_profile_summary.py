@@ -65,10 +65,17 @@ def load_consensus_by_gt(json_path: Path) -> dict[str, str]:
     return consensus
 
 
-def load_subtype_profile_rows(workbook_path: Path) -> tuple[dict[str, dict[str, dict[int, list[tuple[str, float]]]]], dict[str, dict[str, int]]]:
+def load_subtype_profile_rows(
+    workbook_path: Path,
+) -> tuple[
+    dict[str, dict[str, dict[int, list[tuple[str, float]]]]],
+    dict[str, dict[str, int]],
+    dict[str, dict[str, dict[int, int]]],
+]:
     wb = load_workbook(workbook_path, read_only=True, data_only=True)
     profile_rows: dict[str, dict[str, dict[int, list[tuple[str, float]]]]] = defaultdict(lambda: defaultdict(lambda: defaultdict(list)))
     subtype_counts: dict[str, dict[str, int]] = defaultdict(dict)
+    position_coverage: dict[str, dict[str, dict[int, int]]] = defaultdict(lambda: defaultdict(dict))
     for sheet_name in wb.sheetnames:
         gt = sheet_name.replace("GT", "")
         ws = wb[sheet_name]
@@ -81,17 +88,19 @@ def load_subtype_profile_rows(workbook_path: Path) -> tuple[dict[str, dict[str, 
             pct = float(row[6])
             if pos in RESISTANCE_POSITIONS:
                 profile_rows[gt][subtype][pos].append((aa, pct))
+                position_coverage[gt][subtype][pos] = denom
             current = subtype_counts[gt].get(subtype, 0)
             if denom > current:
                 subtype_counts[gt][subtype] = denom
     wb.close()
-    return profile_rows, subtype_counts
+    return profile_rows, subtype_counts, position_coverage
 
 
 def build_grid(
     consensus_by_gt: dict[str, str],
     profile_rows: dict[str, dict[str, dict[int, list[tuple[str, float]]]]],
     subtype_counts: dict[str, dict[str, int]],
+    position_coverage: dict[str, dict[str, dict[int, int]]],
     min_sequences: int,
 ) -> list[list[str]]:
     grid: list[list[str]] = []
@@ -118,6 +127,13 @@ def build_grid(
         grid.append([f"GT{gt}_{subtype} ({subtype_counts[gt][subtype]})"] + [""] * len(RESISTANCE_POSITIONS))
         grid.append(["Position"] + [str(pos) for pos in RESISTANCE_POSITIONS])
         grid.append(["Consensus"] + [consensus_seq[pos - 1] for pos in RESISTANCE_POSITIONS])
+        coverage_row = ["Coverage"]
+        total_sequences = subtype_counts[gt][subtype]
+        for pos in RESISTANCE_POSITIONS:
+            covered = position_coverage[gt][subtype].get(pos, 0)
+            pct = (100.0 * covered / total_sequences) if total_sequences else 0.0
+            coverage_row.append(f"{covered}/{total_sequences} ({pct:.1f}%)")
+        grid.append(coverage_row)
         for depth in range(max_depth):
             row = [f"Rank{depth + 1}"]
             for pos in RESISTANCE_POSITIONS:
@@ -168,11 +184,11 @@ def main() -> int:
     output_dir = Path(args.output_dir)
 
     consensus_by_gt = load_consensus_by_gt(gt_aa_json)
-    profile_rows, subtype_counts = load_subtype_profile_rows(subtype_profile_workbook)
-    grid = build_grid(consensus_by_gt, profile_rows, subtype_counts, args.min_sequences)
+    profile_rows, subtype_counts, position_coverage = load_subtype_profile_rows(subtype_profile_workbook)
+    grid = build_grid(consensus_by_gt, profile_rows, subtype_counts, position_coverage, args.min_sequences)
 
-    job_dir = make_job_dir(output_dir, subtype_profile_workbook)
-    excel_path = job_dir / "NS3_Subtype_Resistance_Profile_Summary.xlsx"
+    output_dir.mkdir(parents=True, exist_ok=True)
+    excel_path = output_dir / "NS3_Subtype_RAS_Profiles_NGE10.xlsx"
     write_excel(excel_path, grid)
 
     included = []
@@ -188,7 +204,6 @@ def main() -> int:
         "min_sequences": args.min_sequences,
         "included_subtypes": included,
     }
-    (job_dir / "summary.json").write_text(json.dumps(summary, indent=2) + "\n", encoding="utf-8")
     print(json.dumps(summary, indent=2))
     return 0
 

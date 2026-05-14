@@ -7,6 +7,7 @@ import json
 import re
 import shutil
 import subprocess
+import tempfile
 from collections import defaultdict
 from datetime import datetime, timezone
 from pathlib import Path
@@ -62,6 +63,12 @@ def make_job_dir(base_output_dir: Path, workbook_path: Path) -> Path:
         shutil.rmtree(job_dir)
     job_dir.mkdir(parents=True, exist_ok=True)
     return job_dir
+
+
+def make_temp_output_path(filename: str) -> Path:
+    handle = tempfile.NamedTemporaryFile(prefix="tmp_", suffix=f"_{filename}", delete=False)
+    handle.close()
+    return Path(handle.name)
 
 
 def parse_fasta(path: Path) -> list[tuple[str, str]]:
@@ -340,7 +347,7 @@ def main() -> int:
             pass
 
     output_rows.sort(key=lambda row: (int(row["RefID"]), row["AccessionID"]))
-    workbook_path = job_dir / "NS5B_Subtype_With_GT_AA.xlsx"
+    workbook_path = make_temp_output_path("NS5B_Subtype_With_GT_AA.xlsx")
     write_output(workbook_path, header, output_rows)
     summary = {
         "output_workbook": str(workbook_path.resolve()),
@@ -348,8 +355,8 @@ def main() -> int:
         "rows_with_aa": len(output_rows),
         "min_aa_overlap": args.min_aa_overlap,
     }
-    (job_dir / "summary.json").write_text(json.dumps(summary, indent=2) + "\n", encoding="utf-8")
     cleanup_db_files(job_dir)
+    shutil.rmtree(job_dir, ignore_errors=True)
     print(json.dumps(summary, indent=2))
     return 0
 

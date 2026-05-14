@@ -12,7 +12,9 @@ from pathlib import Path
 
 from openpyxl import Workbook, load_workbook
 from openpyxl.styles import Alignment, Font, PatternFill
-from PIL import Image, ImageDraw, ImageFont
+
+# Historical PNG output kept for reference only.
+# from PIL import Image, ImageDraw, ImageFont
 
 
 RESISTANCE_POSITIONS = [36, 41, 43, 54, 55, 56, 80, 122, 155, 156, 158, 166, 168, 170, 175]
@@ -137,40 +139,41 @@ def write_excel(path: Path, grid: list[list[str]]) -> None:
     wb.save(path)
 
 
-def write_png(path: Path, grid: list[list[str]]) -> None:
-    font = ImageFont.load_default()
-    row_h = 24
-    first_col_w = 110
-    other_col_w = 78
-    widths = [first_col_w] + [other_col_w] * (len(grid[0]) - 1)
-    total_w = sum(widths) + 1
-    total_h = len(grid) * row_h + 1
-    image = Image.new("RGB", (total_w, total_h), "white")
-    draw = ImageDraw.Draw(image)
-
-    y = 0
-    for row in grid:
-        x = 0
-        row_type = row[0]
-        for col_idx, text in enumerate(row):
-            width = widths[col_idx]
-            fill = "white"
-            if row_type.startswith("GT"):
-                fill = "#D9EAF7"
-            elif row_type == "Position":
-                fill = "#F2F2F2"
-            elif row_type == "Consensus":
-                fill = "#E2F0D9"
-            draw.rectangle([x, y, x + width, y + row_h], fill=fill, outline="#BFBFBF")
-            bbox = draw.textbbox((0, 0), str(text), font=font)
-            text_w = bbox[2] - bbox[0]
-            text_h = bbox[3] - bbox[1]
-            tx = x + (width - text_w) / 2
-            ty = y + (row_h - text_h) / 2
-            draw.text((tx, ty), str(text), fill="black", font=font)
-            x += width
-        y += row_h
-    image.save(path)
+# Historical PNG output kept for reference only.
+# def write_png(path: Path, grid: list[list[str]]) -> None:
+#     font = ImageFont.load_default()
+#     row_h = 24
+#     first_col_w = 110
+#     other_col_w = 78
+#     widths = [first_col_w] + [other_col_w] * (len(grid[0]) - 1)
+#     total_w = sum(widths) + 1
+#     total_h = len(grid) * row_h + 1
+#     image = Image.new("RGB", (total_w, total_h), "white")
+#     draw = ImageDraw.Draw(image)
+#
+#     y = 0
+#     for row in grid:
+#         x = 0
+#         row_type = row[0]
+#         for col_idx, text in enumerate(row):
+#             width = widths[col_idx]
+#             fill = "white"
+#             if row_type.startswith("GT"):
+#                 fill = "#D9EAF7"
+#             elif row_type == "Position":
+#                 fill = "#F2F2F2"
+#             elif row_type == "Consensus":
+#                 fill = "#E2F0D9"
+#             draw.rectangle([x, y, x + width, y + row_h], fill=fill, outline="#BFBFBF")
+#             bbox = draw.textbbox((0, 0), str(text), font=font)
+#             text_w = bbox[2] - bbox[0]
+#             text_h = bbox[3] - bbox[1]
+#             tx = x + (width - text_w) / 2
+#             ty = y + (row_h - text_h) / 2
+#             draw.text((tx, ty), str(text), fill="black", font=font)
+#             x += width
+#         y += row_h
+#     image.save(path)
 
 
 def main() -> int:
@@ -183,19 +186,20 @@ def main() -> int:
     profile_rows = load_gt_profile_rows(gt_profile_workbook)
     grid = build_grid(consensus_by_gt, profile_rows)
 
-    job_dir = make_job_dir(output_dir, gt_profile_workbook)
-    excel_path = job_dir / "NS3_GT_Resistance_Profile_Summary.xlsx"
-    png_path = job_dir / "NS3_GT_Resistance_Profile_Summary.png"
+    output_dir.mkdir(parents=True, exist_ok=True)
+    excel_path = output_dir / "NS3_GT_RAS_Profiles.xlsx"
     write_excel(excel_path, grid)
-    write_png(png_path, grid)
+    # Historical PNG output kept for reference only.
+    # png_path = job_dir / "NS3_GT_Resistance_Profile_Summary.png"
+    # write_png(png_path, grid)
 
     summary = {
         "excel": str(excel_path.resolve()),
-        "png": str(png_path.resolve()),
+        # Historical PNG output kept for reference only.
+        # "png": str(png_path.resolve()),
         "positions": RESISTANCE_POSITIONS,
         "frequency_threshold_percent": 0.1,
     }
-    (job_dir / "summary.json").write_text(json.dumps(summary, indent=2) + "\n", encoding="utf-8")
     print(json.dumps(summary, indent=2))
     return 0
 

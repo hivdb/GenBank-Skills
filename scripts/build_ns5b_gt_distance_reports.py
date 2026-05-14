@@ -3,15 +3,19 @@
 from __future__ import annotations
 
 import argparse
-import csv
 import json
 import re
+import shutil
 import subprocess
+import tempfile
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
 from openpyxl import Workbook, load_workbook
+
+# Historical output flow kept here for reference only.
+# import csv
 
 
 BLAST_OUTFMT = "6 qseqid sseqid length mismatch gaps pident evalue bitscore qstart qend sstart send"
@@ -46,11 +50,8 @@ def sanitize_label(value: str) -> str:
 
 def make_job_dir(base_output_dir: Path, excel_file: Path, sheet_name: str) -> Path:
     label = sanitize_label(f"{excel_file.stem}_{sheet_name}_ns5b_gt_distance")
-    job_dir = base_output_dir / label
-    if job_dir.exists():
-        shutil.rmtree(job_dir)
-    job_dir.mkdir(parents=True, exist_ok=True)
-    return job_dir
+    base_output_dir.mkdir(parents=True, exist_ok=True)
+    return Path(tempfile.mkdtemp(prefix=f"{label}_", dir=base_output_dir))
 
 
 def parse_positive_number(value: Any) -> float | None:
@@ -363,22 +364,25 @@ def write_xlsx(path: Path, rows: list[dict[str, Any]]) -> None:
     workbook.save(path)
 
 
-def write_csv(path: Path, rows: list[dict[str, Any]]) -> None:
-    fieldnames = [
-        "RefID",
-        "RefName",
-        "GenBankAccession",
-        *[f"GT{gt}_Distance" for gt in REFERENCE_GTS],
-        "BestGT",
-        "BestGTDistance",
-        "AlignedNT",
-        *[f"GT{gt}_AlignedNT" for gt in REFERENCE_GTS],
-    ]
-    with path.open("w", encoding="utf-8", newline="") as handle:
-        writer = csv.DictWriter(handle, fieldnames=fieldnames)
-        writer.writeheader()
-        for row in rows:
-            writer.writerow(row)
+# Historical helper kept for reference only. The current workflow writes only
+# NS5B_GT_AllStudies.xlsx.
+#
+# def write_csv(path: Path, rows: list[dict[str, Any]]) -> None:
+#     fieldnames = [
+#         "RefID",
+#         "RefName",
+#         "GenBankAccession",
+#         *[f"GT{gt}_Distance" for gt in REFERENCE_GTS],
+#         "BestGT",
+#         "BestGTDistance",
+#         "AlignedNT",
+#         *[f"GT{gt}_AlignedNT" for gt in REFERENCE_GTS],
+#     ]
+#     with path.open("w", encoding="utf-8", newline="") as handle:
+#         writer = csv.DictWriter(handle, fieldnames=fieldnames)
+#         writer.writeheader()
+#         for row in rows:
+#             writer.writerow(row)
 
 
 def main() -> int:
@@ -400,44 +404,51 @@ def main() -> int:
     matched = find_study_fasta_files(fasta_dir, studies)
 
     job_dir = make_job_dir(base_output_dir, excel_file, args.sheet)
-    progress_dir = job_dir / "NS5B_Alignments.xlsx"
-    progress_dir.mkdir(parents=True, exist_ok=True)
+    output_path = base_output_dir / "NS5B_GT_AllStudies.xlsx"
+    # Historical output flow kept for reference only.
+    # progress_dir = job_dir / "NS5B_Alignments.xlsx"
+    # progress_dir.mkdir(parents=True, exist_ok=True)
     db_prefix, subject_id_to_gt = build_reference_db(job_dir, refs)
 
     master_rows: list[dict[str, Any]] = []
-    study_summaries: list[dict[str, Any]] = []
+    # Historical output flow kept for reference only.
+    # study_summaries: list[dict[str, Any]] = []
     for study in matched:
         rows = build_rows_for_study(study, db_prefix, subject_id_to_gt, args.min_aligned_nt)
-        safe_stem = sanitize_label(Path(study["fasta_path"]).stem)
-        xlsx_path = progress_dir / f"{safe_stem}.xlsx"
-        write_xlsx(xlsx_path, rows)
+        # Historical per-study workbook flow kept for reference only.
+        # safe_stem = sanitize_label(Path(study["fasta_path"]).stem)
+        # xlsx_path = progress_dir / f"{safe_stem}.xlsx"
+        # write_xlsx(xlsx_path, rows)
         master_rows.extend(rows)
-        study_summaries.append(
-            {
-                "RefID": study["RefID"],
-                "RefName": study["RefName"],
-                "fasta_file": Path(study["fasta_path"]).name,
-                "sequence_rows_written": len(rows),
-                "xlsx_file": str(xlsx_path.resolve()),
-            }
-        )
-
-    write_csv(job_dir / "ns5b_gt_distance_master.csv", master_rows)
-    (job_dir / "study_progress.json").write_text(
-        json.dumps(study_summaries, indent=2, ensure_ascii=True) + "\n",
-        encoding="utf-8",
-    )
-    (job_dir / "workflow_request.txt").write_text(
-        Path("notes/ns5b_gt_distance_workflow_2026-05-13.md").read_text(encoding="utf-8"),
-        encoding="utf-8",
-    )
+        # study_summaries.append(
+        #     {
+        #         "RefID": study["RefID"],
+        #         "RefName": study["RefName"],
+        #         "fasta_file": Path(study["fasta_path"]).name,
+        #         "sequence_rows_written": len(rows),
+        #         "xlsx_file": str(xlsx_path.resolve()),
+        #     }
+        # )
+    write_xlsx(output_path, master_rows)
+    # Historical output flow kept for reference only.
+    # write_csv(job_dir / "ns5b_gt_distance_master.csv", master_rows)
+    # (job_dir / "study_progress.json").write_text(
+    #     json.dumps(study_summaries, indent=2, ensure_ascii=True) + "\n",
+    #     encoding="utf-8",
+    # )
+    # (job_dir / "workflow_request.txt").write_text(
+    #     Path("notes/ns5b_gt_distance_workflow_2026-05-13.md").read_text(encoding="utf-8"),
+    #     encoding="utf-8",
+    # )
 
     payload = {
-        "output_dir": str(job_dir.resolve()),
+        "output_dir": str(base_output_dir.resolve()),
         "study_count": len(matched),
         "master_row_count": len(master_rows),
-        "master_csv": str((job_dir / "ns5b_gt_distance_master.csv").resolve()),
-        "xlsx_dir": str(progress_dir.resolve()),
+        "combined_xlsx": str(output_path.resolve()),
+        # Historical payload fields kept for reference only.
+        # "master_csv": str((job_dir / "ns5b_gt_distance_master.csv").resolve()),
+        # "xlsx_dir": str(progress_dir.resolve()),
     }
     for suffix in (".nhr", ".nin", ".nsq", ".ndb", ".not", ".ntf", ".nto"):
         db_file = Path(f"{db_prefix}{suffix}")
@@ -450,6 +461,7 @@ def main() -> int:
         (job_dir / "ns5b_gt_refs.fasta").unlink()
     except OSError:
         pass
+    shutil.rmtree(job_dir, ignore_errors=True)
     print(json.dumps(payload, indent=2, ensure_ascii=True))
     return 0
 

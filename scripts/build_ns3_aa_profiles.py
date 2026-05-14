@@ -14,6 +14,7 @@ from openpyxl import Workbook, load_workbook
 
 
 AA_ORDER = list("ACDEFGHIKLMNPQRSTVWY") + ["X", "*"]
+SUBTYPE_MIN_PCT = 10.0
 
 
 def parse_args() -> argparse.Namespace:
@@ -135,7 +136,10 @@ def write_subtype_workbook(path: Path, rows_by_gt_subtype: dict[str, dict[str, l
                     count = aa_counts[pos].get(aa, 0)
                     if count == 0:
                         continue
-                    ws.append([subtype, pos, denom, aa, count, count, 100.0 * count / denom, 100.0 * count / denom])
+                    pct = 100.0 * count / denom
+                    if pct < SUBTYPE_MIN_PCT:
+                        continue
+                    ws.append([subtype, pos, denom, aa, count, count, pct, pct])
     wb.save(path)
     return summary
 
@@ -154,9 +158,9 @@ def main() -> int:
         rows_by_gt[gt].append(row)
         rows_by_gt_subtype[gt][subtype].append(row)
 
-    job_dir = make_job_dir(output_dir, input_workbook)
-    gt_path = job_dir / "NS3_GT_AA_Profiles.xlsx"
-    subtype_path = job_dir / "NS3_Subtype_AA_Profiles.xlsx"
+    output_dir.mkdir(parents=True, exist_ok=True)
+    gt_path = output_dir / "NS3_GT_CompleteProfiles_TabsPerGT.xlsx"
+    subtype_path = output_dir / "NS3_Subtype_CompleteProfiles_TabsPerGT.xlsx"
 
     gt_summary = write_gt_workbook(gt_path, rows_by_gt)
     subtype_summary = write_subtype_workbook(subtype_path, rows_by_gt_subtype)
@@ -166,11 +170,11 @@ def main() -> int:
         "rows_with_aa": len(rows),
         "gt_workbook": str(gt_path.resolve()),
         "subtype_workbook": str(subtype_path.resolve()),
+        "subtype_min_percent": SUBTYPE_MIN_PCT,
         "gt_sequence_counts": gt_summary,
         "subtype_group_count": sum(len(v) for v in rows_by_gt_subtype.values()),
         "note": "CountWithAA and CountWithAAAlone are identical because current AA sequences contain single-letter calls, not explicit mixtures.",
     }
-    (job_dir / "summary.json").write_text(json.dumps(summary, indent=2) + "\n", encoding="utf-8")
     print(json.dumps(summary, indent=2))
     return 0
 

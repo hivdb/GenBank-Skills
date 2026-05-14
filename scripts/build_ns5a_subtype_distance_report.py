@@ -7,6 +7,7 @@ import json
 import re
 import shutil
 import subprocess
+import tempfile
 from collections import defaultdict
 from datetime import datetime, timezone
 from pathlib import Path
@@ -40,11 +41,8 @@ def sanitize_label(value: str) -> str:
 
 def make_job_dir(base_output_dir: Path, workbook_path: Path) -> Path:
     label = sanitize_label(f"{workbook_path.stem}_ns5a_subtype_distance")
-    job_dir = base_output_dir / label
-    if job_dir.exists():
-        shutil.rmtree(job_dir)
-    job_dir.mkdir(parents=True, exist_ok=True)
-    return job_dir
+    base_output_dir.mkdir(parents=True, exist_ok=True)
+    return Path(tempfile.mkdtemp(prefix=f"{label}_", dir=base_output_dir))
 
 
 def parse_fasta(path: Path) -> list[tuple[str, str]]:
@@ -449,6 +447,7 @@ def main() -> int:
     refs_by_gt = load_subtype_references(subtype_json)
     refid_to_fasta = build_refid_to_fasta(fasta_dir)
     job_dir = make_job_dir(output_dir, combined_workbook)
+    output_path = output_dir / "NS5A_Subtype_AllStudies_WSeqs.xlsx"
 
     rows_by_refid: dict[str, list[dict[str, Any]]] = defaultdict(list)
     for row in base_rows:
@@ -521,21 +520,23 @@ def main() -> int:
             pass
 
     output_rows.sort(key=lambda row: (int(row["RefID"]), row["AccessionID"]))
-    workbook_path = job_dir / "NS5A_Subtype_Alignments_combined.xlsx"
-    write_xlsx(workbook_path, output_rows)
-    (job_dir / "workflow_request.txt").write_text(
-        Path("notes/ns5a_subtype_distance_workflow_2026-05-13.md").read_text(encoding="utf-8"),
-        encoding="utf-8",
-    )
+    write_xlsx(output_path, output_rows)
+    # Historical extra output kept for reference only.
+    # (job_dir / "workflow_request.txt").write_text(
+    #     Path("notes/ns5a_subtype_distance_workflow_2026-05-13.md").read_text(encoding="utf-8"),
+    #     encoding="utf-8",
+    # )
     summary = {
-        "output_workbook": str(workbook_path.resolve()),
+        "output_workbook": str(output_path.resolve()),
         "row_count": len(output_rows),
         "skipped_missing_fasta": len(skipped_missing_fasta),
         "skipped_missing_sequence": len(skipped_missing_sequence),
         "input_row_count": len(base_rows),
     }
-    (job_dir / "summary.json").write_text(json.dumps(summary, indent=2) + "\n", encoding="utf-8")
+    # Historical extra output kept for reference only.
+    # (job_dir / "summary.json").write_text(json.dumps(summary, indent=2) + "\n", encoding="utf-8")
     cleanup_db_files(job_dir)
+    shutil.rmtree(job_dir, ignore_errors=True)
     print(json.dumps(summary, indent=2))
     return 0
 
