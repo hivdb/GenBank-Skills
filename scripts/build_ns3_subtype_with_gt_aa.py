@@ -55,14 +55,19 @@ def sanitize_label(value: str) -> str:
     return text.strip("._-") or "job"
 
 
+def script_temp_dir() -> Path:
+    path = Path("temp") / Path(__file__).stem
+    path.mkdir(parents=True, exist_ok=True)
+    return path
+
+
 def make_job_dir(base_output_dir: Path, workbook_path: Path) -> Path:
     label = sanitize_label(f"{workbook_path.stem}_ns3_gt_aa_extraction")
-    base_output_dir.mkdir(parents=True, exist_ok=True)
-    return Path(tempfile.mkdtemp(prefix=f"{label}_", dir=base_output_dir))
+    return Path(tempfile.mkdtemp(prefix=f"{label}_", dir=script_temp_dir()))
 
 
 def make_temp_output_path(filename: str) -> Path:
-    handle = tempfile.NamedTemporaryFile(prefix="tmp_", suffix=f"_{filename}", delete=False)
+    handle = tempfile.NamedTemporaryFile(prefix="tmp_", suffix=f"_{filename}", dir=script_temp_dir(), delete=False)
     handle.close()
     return Path(handle.name)
 

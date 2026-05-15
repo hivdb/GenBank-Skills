@@ -59,26 +59,46 @@ def load_consensus_by_gt(json_path: Path) -> dict[str, str]:
     return consensus
 
 
-def load_gt_profile_rows(workbook_path: Path) -> dict[str, dict[int, list[tuple[str, float]]]]:
+def load_gt_profile_rows(
+    workbook_path: Path,
+) -> tuple[
+    dict[str, dict[int, list[tuple[str, float]]]],
+    dict[str, int],
+    dict[str, dict[int, int]],
+]:
     wb = load_workbook(workbook_path, read_only=True, data_only=True)
     result: dict[str, dict[int, list[tuple[str, float]]]] = {}
+    gt_counts: dict[str, int] = {}
+    position_coverage: dict[str, dict[int, int]] = {}
     for sheet_name in wb.sheetnames:
         gt = sheet_name.replace("GT", "")
         ws = wb[sheet_name]
         next(ws.iter_rows(values_only=True))
         by_pos: dict[int, list[tuple[str, float]]] = defaultdict(list)
+        coverage_by_pos: dict[int, int] = {}
         for row in ws.iter_rows(min_row=2, values_only=True):
             pos = int(row[0])
+            denom = int(row[1])
             aa = str(row[2])
             pct = float(row[5])
             if pos in RESISTANCE_POSITIONS:
                 by_pos[pos].append((aa, pct))
+                coverage_by_pos[pos] = denom
+                current = gt_counts.get(gt, 0)
+                if denom > current:
+                    gt_counts[gt] = denom
         result[gt] = by_pos
+        position_coverage[gt] = coverage_by_pos
     wb.close()
-    return result
+    return result, gt_counts, position_coverage
 
 
-def build_grid(consensus_by_gt: dict[str, str], profile_rows: dict[str, dict[int, list[tuple[str, float]]]]) -> list[list[str]]:
+def build_grid(
+    consensus_by_gt: dict[str, str],
+    profile_rows: dict[str, dict[int, list[tuple[str, float]]]],
+    gt_counts: dict[str, int],
+    position_coverage: dict[str, dict[int, int]],
+) -> list[list[str]]:
     grid: list[list[str]] = []
     for gt in sorted(profile_rows, key=int):
         pos_variants: dict[int, list[str]] = {}
@@ -97,6 +117,13 @@ def build_grid(consensus_by_gt: dict[str, str], profile_rows: dict[str, dict[int
         grid.append([f"GT{gt}"] + [""] * len(RESISTANCE_POSITIONS))
         grid.append(["Position"] + [str(pos) for pos in RESISTANCE_POSITIONS])
         grid.append(["Consensus"] + [consensus_seq[pos - 1] for pos in RESISTANCE_POSITIONS])
+        coverage_row = ["Coverage"]
+        total_sequences = gt_counts.get(gt, 0)
+        for pos in RESISTANCE_POSITIONS:
+            covered = position_coverage.get(gt, {}).get(pos, 0)
+            pct = (100.0 * covered / total_sequences) if total_sequences else 0.0
+            coverage_row.append(f"{covered}/{total_sequences} ({pct:.1f}%)")
+        grid.append(coverage_row)
         for depth in range(max_depth):
             row = [f"Rank{depth + 1}"]
             for pos in RESISTANCE_POSITIONS:
@@ -130,6 +157,10 @@ def write_excel(path: Path, grid: list[list[str]]) -> None:
         elif first == "Consensus":
             for cell in ws[row_idx]:
                 cell.fill = consensus_fill
+                cell.font = bold
+        elif first == "Coverage":
+            for cell in ws[row_idx]:
+                cell.fill = header_fill
                 cell.font = bold
         for cell in ws[row_idx]:
             cell.alignment = Alignment(horizontal="center")
@@ -183,8 +214,8 @@ def main() -> int:
     output_dir = Path(args.output_dir)
 
     consensus_by_gt = load_consensus_by_gt(gt_aa_json)
-    profile_rows = load_gt_profile_rows(gt_profile_workbook)
-    grid = build_grid(consensus_by_gt, profile_rows)
+    profile_rows, gt_counts, position_coverage = load_gt_profile_rows(gt_profile_workbook)
+    grid = build_grid(consensus_by_gt, profile_rows, gt_counts, position_coverage)
 
     output_dir.mkdir(parents=True, exist_ok=True)
     excel_path = output_dir / "NS3_GT_RAS_Profiles.xlsx"

@@ -20,6 +20,7 @@ from openpyxl import Workbook, load_workbook
 
 BLAST_OUTFMT = "6 qseqid sseqid length mismatch gaps pident evalue bitscore qstart qend sstart send"
 REFERENCE_GTS = tuple(str(i) for i in range(1, 9))
+RESISTANCE_POSITIONS = [150, 159, 206, 282, 316, 320, 321]
 TARGET_GENE = "NS5B"
 
 
@@ -48,10 +49,15 @@ def sanitize_label(value: str) -> str:
     return text.strip("._-") or "job"
 
 
+def script_temp_dir() -> Path:
+    path = Path("temp") / Path(__file__).stem
+    path.mkdir(parents=True, exist_ok=True)
+    return path
+
+
 def make_job_dir(base_output_dir: Path, excel_file: Path, sheet_name: str) -> Path:
     label = sanitize_label(f"{excel_file.stem}_{sheet_name}_ns5b_gt_distance")
-    base_output_dir.mkdir(parents=True, exist_ok=True)
-    return Path(tempfile.mkdtemp(prefix=f"{label}_", dir=base_output_dir))
+    return Path(tempfile.mkdtemp(prefix=f"{label}_", dir=script_temp_dir()))
 
 
 def parse_positive_number(value: Any) -> float | None:
@@ -323,6 +329,7 @@ def build_rows_for_study(
                 -item[1]["bitscore"],
             ),
         )
+        covered_positions = resistance_positions_covered(best_hit)
 
         row = {
             "RefID": study["RefID"],
@@ -331,6 +338,8 @@ def build_rows_for_study(
             "BestGT": best_gt,
             "BestGTDistance": best_hit["distance"],
             "AlignedNT": best_hit["length"],
+            "ContainsResistancePosition": "yes" if covered_positions else "no",
+            "ResistancePositionsCovered": ",".join(str(pos) for pos in covered_positions),
         }
         for gt in REFERENCE_GTS:
             hit = gt_hits[gt]
@@ -342,6 +351,18 @@ def build_rows_for_study(
                 row[f"GT{gt}_AlignedNT"] = hit["length"]
         rows.append(row)
     return rows
+
+
+def resistance_positions_covered(hit: dict[str, Any]) -> list[int]:
+    sstart = min(int(hit["sstart"]), int(hit["send"]))
+    send = max(int(hit["sstart"]), int(hit["send"]))
+    covered: list[int] = []
+    for pos in RESISTANCE_POSITIONS:
+        pos_nt_start = ((pos - 1) * 3) + 1
+        pos_nt_end = pos * 3
+        if sstart <= pos_nt_end and send >= pos_nt_start:
+            covered.append(pos)
+    return covered
 
 
 def write_xlsx(path: Path, rows: list[dict[str, Any]]) -> None:
@@ -356,6 +377,8 @@ def write_xlsx(path: Path, rows: list[dict[str, Any]]) -> None:
         "BestGT",
         "BestGTDistance",
         "AlignedNT",
+        "ContainsResistancePosition",
+        "ResistancePositionsCovered",
         *[f"GT{gt}_AlignedNT" for gt in REFERENCE_GTS],
     ]
     sheet.append(fieldnames)
