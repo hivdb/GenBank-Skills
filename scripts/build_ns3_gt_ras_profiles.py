@@ -122,7 +122,7 @@ def build_grid(
 
         grid.append([f"GT{gt}"] + [""] * len(RESISTANCE_POSITIONS))
         grid.append(["Position"] + [str(pos) for pos in RESISTANCE_POSITIONS])
-        grid.append(["Consensus"] + [consensus_seq[pos - 1] for pos in RESISTANCE_POSITIONS])
+        grid.append(["Reference"] + [consensus_seq[pos - 1] for pos in RESISTANCE_POSITIONS])
         coverage_row = ["Coverage"]
         total_sequences = gt_counts.get(gt, 0)
         for pos in RESISTANCE_POSITIONS:
@@ -160,7 +160,7 @@ def write_excel(path: Path, grid: list[list[str]]) -> None:
             for cell in ws[row_idx]:
                 cell.fill = header_fill
                 cell.font = bold
-        elif first == "Consensus":
+        elif first == "Reference":
             for cell in ws[row_idx]:
                 cell.fill = consensus_fill
                 cell.font = bold

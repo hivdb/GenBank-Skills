@@ -154,7 +154,7 @@ def build_grid(
 
         grid.append([f"GT{gt}_{subtype} ({subtype_counts[gt][subtype]})"] + [""] * len(positions))
         grid.append(["Position"] + [str(pos) for pos in positions])
-        grid.append(["Consensus"] + [consensus_seq[pos - 1] for pos in positions])
+        grid.append(["Reference"] + [consensus_seq[pos - 1] for pos in positions])
         coverage_row = ["Coverage"]
         total_sequences = subtype_counts[gt][subtype]
         for pos in positions:
@@ -192,7 +192,7 @@ def write_excel(path: Path, grid: list[list[str]], positions: list[int]) -> None
             for cell in ws[row_idx]:
                 cell.fill = header_fill
                 cell.font = bold
-        elif first == "Consensus":
+        elif first == "Reference":
             for cell in ws[row_idx]:
                 cell.fill = consensus_fill
                 cell.font = bold
