@@ -3,3 +3,4 @@ temp/
 __pycache__/
 *.pyc
 .env
+pipeline.local.toml

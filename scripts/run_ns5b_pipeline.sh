@@ -4,11 +4,16 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 PYTHON_BIN="${PYTHON_BIN:-$REPO_ROOT/.venv/bin/python}"
+CONFIG_PATH="$REPO_ROOT/pipeline.local.toml"
+
+if [[ -f "$CONFIG_PATH" ]]; then
+  eval "$(python3 "$REPO_ROOT/scripts/load_pipeline_defaults.py" ns5b "$REPO_ROOT")"
+fi
 
 usage() {
   cat <<'EOF'
 Usage:
-  EXCEL_FILE=/path/to/HCV_BlastHits.xlsx FASTA_POOL=/path/to/FASTA scripts/run_ns5b_pipeline.sh
+  EXCEL_FILE=/path/to/HCV_BlastHits.xlsx FASTA_POOL=/path/to/FASTA GENBANK_DIR=/path/to/genbank_seq_files scripts/run_ns5b_pipeline.sh
 
 Optional environment variables:
   SHEET_NAME
@@ -18,11 +23,15 @@ Optional environment variables:
   GT_AA_JSON
   MIN_SEQUENCES
   PYTHON_BIN
+  TEMP_ROOT
+
+Defaults can also be provided in pipeline.local.toml.
 EOF
 }
 
 EXCEL_FILE="${EXCEL_FILE:-}"
 FASTA_POOL="${FASTA_POOL:-}"
+GENBANK_DIR="${GENBANK_DIR:-}"
 SHEET_NAME="${SHEET_NAME:-Ref_summary_20260429 (2)}"
 OUTPUT_DIR="${OUTPUT_DIR:-$REPO_ROOT/outputs}"
 REFERENCE_FASTA="${REFERENCE_FASTA:-$REPO_ROOT/HCV_GT_RefSeqs.fasta}"
@@ -31,34 +40,42 @@ GT_AA_JSON="${GT_AA_JSON:-$REPO_ROOT/HCV_GT_Refs_By_Gene_AA.json}"
 MIN_SEQUENCES="${MIN_SEQUENCES:-10}"
 TEMP_ROOT="${TEMP_ROOT:-$REPO_ROOT/temp/$(basename "$0" .sh)}"
 
-if [[ -z "$EXCEL_FILE" || -z "$FASTA_POOL" ]]; then
+if [[ -z "$EXCEL_FILE" || -z "$FASTA_POOL" || -z "$GENBANK_DIR" ]]; then
   usage
   exit 1
 fi
 
 MATCHED_TXT="$OUTPUT_DIR/NS5B_matched_fasta_files.txt"
-STAGE_DIR="$OUTPUT_DIR/NS5B"
+STAGE_DIR="$TEMP_ROOT/NS5B_stage"
+DISCOVERY_TMP="$REPO_ROOT/temp/find_refid_fastas"
+DISCOVERY_JSON="$DISCOVERY_TMP/discovery_ns5b.json"
+GT_ALLSTUDIES_JSON="$REPO_ROOT/temp/build_ns5b_gt_allstudies/last_run_summary.json"
+SOURCEFEATURES_JSON="$REPO_ROOT/temp/build_ns5b_sourcefeatures_csv/last_run_summary.json"
+SOURCEFEATURES_GROUPED_JSON="$REPO_ROOT/temp/build_ns5b_sourcefeatures_grouped_csv/last_run_summary.json"
+SUBTYPE_ALLSTUDIES_JSON="$REPO_ROOT/temp/build_ns5b_subtype_allstudies_wseqs/last_run_summary.json"
+SUBTYPE_WITH_GT_AA_JSON="$REPO_ROOT/temp/build_ns5b_subtype_with_gt_aa/last_run_summary.json"
+COMPLETEPROFILES_JSON="$REPO_ROOT/temp/build_ns5b_completeprofiles_tabspergt/last_run_summary.json"
+GT_RAS_JSON="$REPO_ROOT/temp/build_ns5b_gt_ras_profiles/last_run_summary.json"
+SUBTYPE_RAS_JSON="$REPO_ROOT/temp/build_ns5b_subtype_ras_profiles_nge10/last_run_summary.json"
 mkdir -p "$TEMP_ROOT"
-RUN_TMP="$(mktemp -d "$TEMP_ROOT/run.XXXXXX")"
-DISCOVERY_TMP="$RUN_TMP/discovery"
-STAGE_ARCHIVE="$(mktemp -d "$TEMP_ROOT/stage_archive.XXXXXX")"
+mkdir -p "$DISCOVERY_TMP"
+mkdir -p "$(dirname "$GT_ALLSTUDIES_JSON")" "$(dirname "$SOURCEFEATURES_JSON")" "$(dirname "$SOURCEFEATURES_GROUPED_JSON")"
+mkdir -p "$(dirname "$SUBTYPE_ALLSTUDIES_JSON")" "$(dirname "$SUBTYPE_WITH_GT_AA_JSON")"
+mkdir -p "$(dirname "$COMPLETEPROFILES_JSON")" "$(dirname "$GT_RAS_JSON")" "$(dirname "$SUBTYPE_RAS_JSON")"
 
 mkdir -p "$OUTPUT_DIR"
 
 cleanup() {
-  if [[ -d "$STAGE_DIR" ]]; then
-    mv "$STAGE_DIR" "$STAGE_ARCHIVE/NS5B_stage_final" 2>/dev/null || true
-  fi
   if [[ -n "${AA_TMP_WORKBOOK:-}" && -f "${AA_TMP_WORKBOOK:-}" ]]; then
     rm -f "$AA_TMP_WORKBOOK"
   fi
 }
 trap cleanup EXIT
 
-if [[ -d "$STAGE_DIR" ]]; then
-  mv "$STAGE_DIR" "$STAGE_ARCHIVE/NS5B_stage_prev"
-fi
+rm -rf "$STAGE_DIR"
 mkdir -p "$STAGE_DIR"
+rm -f "$REPO_ROOT/temp/build_ns5b_sourcefeatures_csv/NS5B_SourceFeatures.csv"
+rm -f "$REPO_ROOT/temp/build_ns5b_sourcefeatures_grouped_csv/NS5B_SourceFeatures_Grouped.csv"
 
 "$PYTHON_BIN" "$REPO_ROOT/excel-refid-fasta-discovery/scripts/find_refid_fastas.py" \
   --excel-file "$EXCEL_FILE" \
@@ -66,7 +83,7 @@ mkdir -p "$STAGE_DIR"
   --output-dir "$DISCOVERY_TMP" \
   --numpatients-column 'Num Pts' \
   --positive-column NS5BCount \
-  > "$RUN_TMP/discovery.json"
+  > "$DISCOVERY_JSON"
 
 DISCOVERY_DIR="$(find "$DISCOVERY_TMP" -maxdepth 1 -type d -name 'refid_fasta_*' | head -n 1)"
 cp "$DISCOVERY_DIR/matched_fasta_files.txt" "$MATCHED_TXT"
@@ -86,44 +103,53 @@ done < "$MATCHED_TXT"
   --refname-column RefName \
   --numpatients-column 'Num Pts' \
   --positive-column NS5BCount \
-  > "$RUN_TMP/gt_allstudies.json"
+  > "$GT_ALLSTUDIES_JSON"
+
+"$PYTHON_BIN" "$REPO_ROOT/scripts/build_ns5b_sourcefeatures_csv.py" \
+  --matched-fasta-report "$MATCHED_TXT" \
+  --genbank-dir "$GENBANK_DIR" \
+  > "$SOURCEFEATURES_JSON"
+
+"$PYTHON_BIN" "$REPO_ROOT/scripts/build_ns5b_sourcefeatures_grouped_csv.py" \
+  --gt-workbook "$OUTPUT_DIR/NS5B_GT_AllStudies.xlsx" \
+  --summary-xlsx "$OUTPUT_DIR/NS5B_NumSeqs_Naive_1PP_CoversRAS_ByStudy.xlsx" \
+  > "$SOURCEFEATURES_GROUPED_JSON"
 
 "$PYTHON_BIN" "$REPO_ROOT/scripts/build_ns5b_subtype_allstudies_wseqs.py" \
   --combined-workbook "$OUTPUT_DIR/NS5B_GT_AllStudies.xlsx" \
   --fasta-dir "$STAGE_DIR" \
   --subtype-json "$SUBTYPE_JSON" \
   --output-dir "$OUTPUT_DIR" \
-  > "$RUN_TMP/subtype_allstudies.json"
+  > "$SUBTYPE_ALLSTUDIES_JSON"
 
 "$PYTHON_BIN" "$REPO_ROOT/scripts/build_ns5b_subtype_with_gt_aa.py" \
   --subtype-workbook "$OUTPUT_DIR/NS5B_Subtype_AllStudies_WSeqs.xlsx" \
   --fasta-dir "$STAGE_DIR" \
   --gt-aa-json "$GT_AA_JSON" \
   --output-dir "$OUTPUT_DIR" \
-  > "$RUN_TMP/subtype_with_gt_aa.json"
+  > "$SUBTYPE_WITH_GT_AA_JSON"
 
-AA_TMP_WORKBOOK="$("$PYTHON_BIN" -c 'import json,sys; print(json.load(open(sys.argv[1]))["output_workbook"])' "$RUN_TMP/subtype_with_gt_aa.json")"
+AA_TMP_WORKBOOK="$("$PYTHON_BIN" -c 'import json,sys; print(json.load(open(sys.argv[1]))["output_workbook"])' "$SUBTYPE_WITH_GT_AA_JSON")"
 
 "$PYTHON_BIN" "$REPO_ROOT/scripts/build_ns5b_completeprofiles_tabspergt.py" \
   --input-workbook "$AA_TMP_WORKBOOK" \
   --output-dir "$OUTPUT_DIR" \
-  > "$RUN_TMP/completeprofiles.json"
+  > "$COMPLETEPROFILES_JSON"
 
 "$PYTHON_BIN" "$REPO_ROOT/scripts/build_ns5b_gt_ras_profiles.py" \
   --gt-profile-workbook "$OUTPUT_DIR/NS5B_GT_CompleteProfiles_TabsPerGT.xlsx" \
   --gt-aa-json "$GT_AA_JSON" \
   --output-dir "$OUTPUT_DIR" \
-  > "$RUN_TMP/gt_ras.json"
+  > "$GT_RAS_JSON"
 
 "$PYTHON_BIN" "$REPO_ROOT/scripts/build_ns5b_subtype_ras_profiles_nge10.py" \
   --subtype-profile-workbook "$OUTPUT_DIR/NS5B_Subtype_CompleteProfiles_TabsPerGT.xlsx" \
   --gt-aa-json "$GT_AA_JSON" \
   --output-dir "$OUTPUT_DIR" \
   --min-sequences "$MIN_SEQUENCES" \
-  > "$RUN_TMP/subtype_ras.json"
+  > "$SUBTYPE_RAS_JSON"
 
 echo "NS5B pipeline complete"
 echo "matched_fasta_report=$MATCHED_TXT"
 echo "output_dir=$OUTPUT_DIR"
-echo "run_tmp=$RUN_TMP"
-echo "stage_archive=$STAGE_ARCHIVE"
+echo "temp_root=$TEMP_ROOT"

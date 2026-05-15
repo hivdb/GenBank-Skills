@@ -64,6 +64,21 @@ def normalize_isolate_key(value: str) -> str:
     return text.strip(" _-")
 
 
+def patient_code_from_structured_comment(value: str) -> str:
+    match = re.search(r"(?im)^Patient Code\s*::\s*(.+?)\s*$", value)
+    return normalize_space(match.group(1)) if match else ""
+
+
+def effective_source_isolate(row: dict[str, str]) -> str:
+    source_isolate = (row.get("source_isolate") or "").strip()
+    if not source_isolate:
+        return ""
+    patient_code = patient_code_from_structured_comment((row.get("StructuredComment") or "").strip())
+    if patient_code and patient_code in source_isolate:
+        return patient_code
+    return source_isolate
+
+
 def read_rows(path: Path) -> tuple[list[dict[str, str]], list[str]]:
     with path.open(encoding="utf-8", newline="") as handle:
         reader = csv.DictReader(handle)
@@ -111,7 +126,7 @@ def summarize_group(refid: str, mode: str, group_key: str, rows: list[dict[str, 
     row_count = len(rows)
     accessions = sorted({(row.get("Accession") or "").strip() for row in rows if (row.get("Accession") or "").strip()})
     source_clones = sorted({(row.get("source_clone") or "").strip() for row in rows if (row.get("source_clone") or "").strip()})
-    source_isolates = sorted({(row.get("source_isolate") or "").strip() for row in rows if (row.get("source_isolate") or "").strip()})
+    source_isolates = sorted({effective_source_isolate(row) for row in rows if effective_source_isolate(row)})
     definitions = sorted({(row.get("definition") or "").strip() for row in rows if (row.get("definition") or "").strip()})
     structured_comments = sorted({(row.get("StructuredComment") or "").strip() for row in rows if (row.get("StructuredComment") or "").strip()})
     best_accession, best_positions = choose_best_coverage_accession(rows, gt_coverage_by_accession)
@@ -152,7 +167,7 @@ def group_rows(rows: list[dict[str, str]], gt_coverage_by_accession: dict[str, l
             grouped_rows.append(summarize_group(refid, "source_clone_prefix", key, clone_groups[key], gt_coverage_by_accession))
         isolate_groups: dict[str, list[dict[str, str]]] = defaultdict(list)
         for row in clone_empty:
-            raw_isolate = (row.get("source_isolate") or "").strip()
+            raw_isolate = effective_source_isolate(row)
             key = normalize_isolate_key(raw_isolate)
             if not key:
                 accession = (row.get("Accession") or "").strip()

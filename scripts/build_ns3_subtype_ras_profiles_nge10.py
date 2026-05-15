@@ -30,6 +30,12 @@ def parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
+def script_temp_dir() -> Path:
+    path = Path("temp") / Path(__file__).stem
+    path.mkdir(parents=True, exist_ok=True)
+    return path
+
+
 def sanitize_label(value: str) -> str:
     return "".join(ch if ch.isalnum() or ch in "._-" else "_" for ch in value).strip("._-") or "job"
 
@@ -182,6 +188,7 @@ def main() -> int:
     subtype_profile_workbook = Path(args.subtype_profile_workbook).expanduser()
     gt_aa_json = Path(args.gt_aa_json).expanduser()
     output_dir = Path(args.output_dir)
+    script_temp_dir()
 
     consensus_by_gt = load_consensus_by_gt(gt_aa_json)
     profile_rows, subtype_counts, position_coverage = load_subtype_profile_rows(subtype_profile_workbook)

@@ -24,6 +24,12 @@ def parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
+def script_temp_dir() -> Path:
+    path = Path("temp") / Path(__file__).stem
+    path.mkdir(parents=True, exist_ok=True)
+    return path
+
+
 def sanitize_label(value: str) -> str:
     return "".join(ch if ch.isalnum() or ch in "._-" else "_" for ch in value).strip("._-") or "job"
 
@@ -148,6 +154,7 @@ def main() -> int:
     args = parse_args()
     input_workbook = Path(args.input_workbook).expanduser()
     output_dir = Path(args.output_dir)
+    script_temp_dir()
 
     rows = load_rows(input_workbook)
     rows_by_gt: dict[str, list[dict[str, Any]]] = defaultdict(list)

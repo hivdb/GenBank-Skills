@@ -1,0 +1,23 @@
+[common]
+genbank_dir = "/absolute/path/to/genbank_seq_files"
+sheet_name = "Ref_summary_20260429 (2)"
+output_dir = "outputs"
+reference_fasta = "HCV_GT_RefSeqs.fasta"
+subtype_json = "HCV_Subtype_Refs_By_Genome_NA.json"
+gt_aa_json = "HCV_GT_Refs_By_Gene_AA.json"
+min_sequences = 10
+python_bin = ".venv/bin/python"
+
+[ns3]
+excel_file = "/absolute/path/to/HCV_BlastHits.xlsx"
+fasta_pool = "/absolute/path/to/FASTA"
+
+[ns5a]
+excel_file = "/absolute/path/to/HCV_BlastHits.xlsx"
+fasta_pool = "/absolute/path/to/FASTA"
+genbank_dir = "/absolute/path/to/genbank_seq_files"
+
+[ns5b]
+excel_file = "/absolute/path/to/HCV_BlastHits.xlsx"
+fasta_pool = "/absolute/path/to/FASTA"
+genbank_dir = "/absolute/path/to/genbank_seq_files"
