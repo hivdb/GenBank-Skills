@@ -13,7 +13,7 @@ fi
 usage() {
   cat <<'EOF'
 Usage:
-  EXCEL_FILE=/path/to/HCV_BlastHits.xlsx FASTA_POOL=/path/to/FASTA GENBANK_DIR=/path/to/genbank_seq_files scripts/run_ns5b_pipeline.sh
+  EXCEL_FILE=/path/to/HCV_BlastHits.xlsx FASTA_POOL=/path/to/FASTA [GENBANK_DIR=/path/to/genbank_seq_files] scripts/run_ns5b_pipeline.sh
 
 Optional environment variables:
   SHEET_NAME
@@ -40,7 +40,7 @@ GT_AA_JSON="${GT_AA_JSON:-$REPO_ROOT/HCV_GT_Refs_By_Gene_AA.json}"
 MIN_SEQUENCES="${MIN_SEQUENCES:-10}"
 TEMP_ROOT="${TEMP_ROOT:-$REPO_ROOT/temp/$(basename "$0" .sh)}"
 
-if [[ -z "$EXCEL_FILE" || -z "$FASTA_POOL" || -z "$GENBANK_DIR" ]]; then
+if [[ -z "$EXCEL_FILE" || -z "$FASTA_POOL" ]]; then
   usage
   exit 1
 fi
@@ -105,15 +105,19 @@ done < "$MATCHED_TXT"
   --positive-column NS5BCount \
   > "$GT_ALLSTUDIES_JSON"
 
-"$PYTHON_BIN" "$REPO_ROOT/scripts/build_ns5b_sourcefeatures_csv.py" \
-  --matched-fasta-report "$MATCHED_TXT" \
-  --genbank-dir "$GENBANK_DIR" \
-  > "$SOURCEFEATURES_JSON"
+if [[ -n "$GENBANK_DIR" ]]; then
+  "$PYTHON_BIN" "$REPO_ROOT/scripts/build_ns5b_sourcefeatures_csv.py" \
+    --matched-fasta-report "$MATCHED_TXT" \
+    --genbank-dir "$GENBANK_DIR" \
+    > "$SOURCEFEATURES_JSON"
 
-"$PYTHON_BIN" "$REPO_ROOT/scripts/build_ns5b_sourcefeatures_grouped_csv.py" \
-  --gt-workbook "$OUTPUT_DIR/NS5B_GT_AllStudies.xlsx" \
-  --summary-xlsx "$OUTPUT_DIR/NS5B_NumSeqs_Naive_1PP_CoversRAS_ByStudy.xlsx" \
-  > "$SOURCEFEATURES_GROUPED_JSON"
+  "$PYTHON_BIN" "$REPO_ROOT/scripts/build_ns5b_sourcefeatures_grouped_csv.py" \
+    --gt-workbook "$OUTPUT_DIR/NS5B_GT_AllStudies.xlsx" \
+    --summary-xlsx "$OUTPUT_DIR/NS5B_NumSeqs_Naive_1PP_CoversRAS_ByStudy.xlsx" \
+    > "$SOURCEFEATURES_GROUPED_JSON"
+else
+  echo "GENBANK_DIR not provided; skipping NS5B source-feature extraction and grouped summary steps"
+fi
 
 "$PYTHON_BIN" "$REPO_ROOT/scripts/build_ns5b_subtype_allstudies_wseqs.py" \
   --combined-workbook "$OUTPUT_DIR/NS5B_GT_AllStudies.xlsx" \

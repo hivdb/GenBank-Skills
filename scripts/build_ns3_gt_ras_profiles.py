@@ -111,11 +111,10 @@ def build_grid(
         max_depth = 0
         consensus_seq = consensus_by_gt[gt]
         for pos in RESISTANCE_POSITIONS:
-            consensus_aa = consensus_seq[pos - 1]
             variants = [
                 f"{aa}-{format_freq(pct)}"
                 for aa, pct in sorted(profile_rows[gt].get(pos, []), key=lambda item: (-item[1], item[0]))
-                if aa != consensus_aa and aa not in EXCLUDED_AAS and pct > 0.1
+                if aa not in EXCLUDED_AAS and pct > 0.1
             ]
             pos_variants[pos] = variants
             max_depth = max(max_depth, len(variants))
@@ -131,7 +130,7 @@ def build_grid(
             coverage_row.append(f"{covered}/{total_sequences} ({pct:.1f}%)")
         grid.append(coverage_row)
         for depth in range(max_depth):
-            row = [f"Rank{depth + 1}"]
+            row = ["Consensus" if depth == 0 else f"Rank{depth + 1}"]
             for pos in RESISTANCE_POSITIONS:
                 variants = pos_variants[pos]
                 row.append(variants[depth] if depth < len(variants) else "")
