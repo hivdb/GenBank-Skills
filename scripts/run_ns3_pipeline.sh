@@ -21,7 +21,6 @@ Optional environment variables:
   REFERENCE_FASTA
   SUBTYPE_JSON
   GT_AA_JSON
-  MIN_SEQUENCES
   PYTHON_BIN
   TEMP_ROOT
 
@@ -37,7 +36,6 @@ OUTPUT_DIR="${OUTPUT_DIR:-$REPO_ROOT/outputs}"
 REFERENCE_FASTA="${REFERENCE_FASTA:-$REPO_ROOT/HCV_GT_RefSeqs.fasta}"
 SUBTYPE_JSON="${SUBTYPE_JSON:-$REPO_ROOT/HCV_Subtype_Refs_By_Genome_NA.json}"
 GT_AA_JSON="${GT_AA_JSON:-$REPO_ROOT/HCV_GT_Refs_By_Gene_AA.json}"
-MIN_SEQUENCES="${MIN_SEQUENCES:-10}"
 TEMP_ROOT="${TEMP_ROOT:-$REPO_ROOT/temp/$(basename "$0" .sh)}"
 
 if [[ -z "$EXCEL_FILE" || -z "$FASTA_POOL" ]]; then
@@ -56,7 +54,7 @@ SUBTYPE_ALLSTUDIES_JSON="$REPO_ROOT/temp/build_ns3_subtype_allstudies_wseqs/last
 SUBTYPE_WITH_GT_AA_JSON="$REPO_ROOT/temp/build_ns3_subtype_with_gt_aa/last_run_summary.json"
 COMPLETEPROFILES_JSON="$REPO_ROOT/temp/build_ns3_completeprofiles_tabspergt/last_run_summary.json"
 GT_RAS_JSON="$REPO_ROOT/temp/build_ns3_gt_ras_profiles/last_run_summary.json"
-SUBTYPE_RAS_JSON="$REPO_ROOT/temp/build_ns3_subtype_ras_profiles_nge10/last_run_summary.json"
+SUBTYPE_RAS_JSON="$REPO_ROOT/temp/build_ns3_subtype_ras_profiles/last_run_summary.json"
 mkdir -p "$TEMP_ROOT"
 mkdir -p "$DISCOVERY_TMP"
 mkdir -p "$(dirname "$GT_ALLSTUDIES_JSON")" "$(dirname "$SOURCEFEATURES_JSON")" "$(dirname "$SOURCEFEATURES_GROUPED_JSON")"
@@ -79,6 +77,7 @@ rm -f "$REPO_ROOT/temp/build_ns3_sourcefeatures_grouped_csv/NS3_SourceFeatures_G
 
 "$PYTHON_BIN" "$REPO_ROOT/excel-refid-fasta-discovery/scripts/find_refid_fastas.py" \
   --excel-file "$EXCEL_FILE" \
+  --sheet "$SHEET_NAME" \
   --fasta-dir "$FASTA_POOL" \
   --output-dir "$DISCOVERY_TMP" \
   --numpatients-column 'Num Pts' \
@@ -146,11 +145,10 @@ AA_TMP_WORKBOOK="$("$PYTHON_BIN" -c 'import json,sys; print(json.load(open(sys.a
   --output-dir "$OUTPUT_DIR" \
   > "$GT_RAS_JSON"
 
-"$PYTHON_BIN" "$REPO_ROOT/scripts/build_ns3_subtype_ras_profiles_nge10.py" \
+"$PYTHON_BIN" "$REPO_ROOT/scripts/build_ns3_subtype_ras_profiles.py" \
   --subtype-profile-workbook "$OUTPUT_DIR/NS3_Subtype_CompleteProfiles_TabsPerGT.xlsx" \
   --gt-aa-json "$GT_AA_JSON" \
   --output-dir "$OUTPUT_DIR" \
-  --min-sequences "$MIN_SEQUENCES" \
   > "$SUBTYPE_RAS_JSON"
 
 echo "NS3 pipeline complete"

@@ -167,7 +167,7 @@ Important detail:
 6. Run `scripts/build_ns3_subtype_with_gt_aa.py`.
 7. Run `scripts/build_ns3_completeprofiles_tabspergt.py`.
 8. Run `scripts/build_ns3_gt_ras_profiles.py`.
-9. Run `scripts/build_ns3_subtype_ras_profiles_nge10.py`.
+9. Run `scripts/build_ns3_subtype_ras_profiles.py`.
 
 Main outputs:
 
@@ -194,7 +194,7 @@ Treat `NS5A_NTD` on the AA/profile side as `NS5A` for workflow purposes.
 6. Run `scripts/build_ns5a_subtype_with_gt_aa.py`.
 7. Run `scripts/build_ns5a_completeprofiles_tabspergt.py`.
 8. Run `scripts/build_ns5a_gt_ras_profiles.py`.
-9. Run `scripts/build_ns5a_subtype_ras_profiles_nge10.py`.
+9. Run `scripts/build_ns5a_subtype_ras_profiles.py`.
 
 Main outputs:
 
@@ -219,7 +219,7 @@ Main outputs:
 6. Run `scripts/build_ns5b_subtype_with_gt_aa.py`.
 7. Run `scripts/build_ns5b_completeprofiles_tabspergt.py`.
 8. Run `scripts/build_ns5b_gt_ras_profiles.py`.
-9. Run `scripts/build_ns5b_subtype_ras_profiles_nge10.py`.
+9. Run `scripts/build_ns5b_subtype_ras_profiles.py`.
 
 Main outputs:
 

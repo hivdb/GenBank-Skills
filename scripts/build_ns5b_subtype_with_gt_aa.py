@@ -13,6 +13,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+from Bio import Align
 from openpyxl import Workbook, load_workbook
 
 
@@ -113,6 +114,41 @@ def translate_nt(sequence: str) -> str:
         else:
             aa.append(CODON_TABLE.get(codon, "X"))
     return "".join(aa)
+
+
+def build_aligner() -> Align.PairwiseAligner:
+    aligner = Align.PairwiseAligner(mode="global")
+    aligner.match_score = 2.0
+    aligner.mismatch_score = -1.0
+    aligner.open_gap_score = -5.0
+    aligner.extend_gap_score = -1.0
+    return aligner
+
+
+def alignment_strings(reference: str, query: str, coordinates: Any) -> tuple[str, str]:
+    ref_chunks: list[str] = []
+    query_chunks: list[str] = []
+    ref_points = coordinates[0]
+    query_points = coordinates[1]
+    for idx in range(len(ref_points) - 1):
+        ref_start = int(ref_points[idx])
+        ref_end = int(ref_points[idx + 1])
+        query_start = int(query_points[idx])
+        query_end = int(query_points[idx + 1])
+        ref_span = ref_end - ref_start
+        query_span = query_end - query_start
+        if ref_span > 0 and query_span > 0:
+            if ref_span != query_span:
+                raise RuntimeError("Unexpected alignment segment with unequal spans")
+            ref_chunks.append(reference[ref_start:ref_end])
+            query_chunks.append(query[query_start:query_end])
+        elif ref_span > 0:
+            ref_chunks.append(reference[ref_start:ref_end])
+            query_chunks.append("-" * ref_span)
+        elif query_span > 0:
+            ref_chunks.append("-" * query_span)
+            query_chunks.append(query[query_start:query_end])
+    return "".join(ref_chunks), "".join(query_chunks)
 
 
 def load_gt_refs(json_path: Path) -> dict[str, str]:
@@ -255,7 +291,7 @@ def choose_best_hits(hits: list[dict[str, Any]], min_aa_overlap: int) -> dict[st
     return best
 
 
-def extract_aa(sequence: str, hit: dict[str, Any]) -> tuple[int, int, str]:
+def extract_aa(sequence: str, hit: dict[str, Any], reference_aa: str) -> tuple[int, int, str]:
     qstart = min(hit["qstart"], hit["qend"])
     qend = max(hit["qstart"], hit["qend"])
     frame = hit["qframe"]
@@ -264,10 +300,29 @@ def extract_aa(sequence: str, hit: dict[str, Any]) -> tuple[int, int, str]:
     else:
         nt_window = normalize_nt(reverse_complement(sequence[qstart - 1 : qend]))
     nt_window = nt_window[: len(nt_window) - (len(nt_window) % 3)]
-    aa_sequence = translate_nt(nt_window)
-    start_aa = min(hit["sstart"], hit["send"])
-    end_aa = start_aa + len(aa_sequence) - 1 if aa_sequence else start_aa - 1
-    return start_aa, end_aa, aa_sequence
+    query_aa = translate_nt(nt_window)
+    if not query_aa:
+        return 0, 0, ""
+
+    global_alignment = build_aligner().align(reference_aa, query_aa)[0]
+    aligned_reference_aa, aligned_query_aa = alignment_strings(reference_aa, query_aa, global_alignment.coordinates)
+
+    ref_pos = 0
+    query_chars: list[str] = []
+    start_aa: int | None = None
+    end_aa: int | None = None
+    for ref_char, query_char in zip(aligned_reference_aa, aligned_query_aa):
+        if ref_char != "-":
+            ref_pos += 1
+            if query_char != "-":
+                if start_aa is None:
+                    start_aa = ref_pos
+                end_aa = ref_pos
+                query_chars.append(query_char)
+
+    if start_aa is None or end_aa is None:
+        return 0, 0, ""
+    return start_aa, end_aa, "".join(query_chars)
 
 
 def cleanup_db_files(job_dir: Path) -> None:
@@ -309,6 +364,7 @@ def main() -> int:
     output_rows: list[dict[str, Any]] = []
     for gt, rows in sorted(rows_by_gt.items(), key=lambda item: int(item[0])):
         db_prefix = build_gt_db(job_dir, gt, gt_refs[gt])
+        reference_aa = gt_refs[gt]
         query_entries: list[tuple[str, str]] = []
         sequence_by_qseqid: dict[str, str] = {}
 
@@ -337,7 +393,7 @@ def main() -> int:
             hit = best_hits.get(qseqid)
             if hit is None:
                 continue
-            start_aa, end_aa, aa_sequence = extract_aa(sequence_by_qseqid[qseqid], hit)
+            start_aa, end_aa, aa_sequence = extract_aa(sequence_by_qseqid[qseqid], hit, reference_aa)
             output_row = dict(row)
             output_row["StartAAPosition"] = start_aa if aa_sequence else ""
             output_row["EndAAPosition"] = end_aa if aa_sequence else ""

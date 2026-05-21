@@ -16,19 +16,19 @@ from openpyxl.styles import Alignment, Font, PatternFill
 from openpyxl.utils import get_column_letter
 
 
-DEFAULT_RESISTANCE_POSITIONS = [150, 159, 206, 282, 316, 320, 321]
+DEFAULT_RESISTANCE_POSITIONS = [24, 26, 28, 29, 30, 31, 32, 38, 58, 62, 92, 93]
 EXCLUDED_AAS = {"X", "*"}
-TARGET_GENE = "NS5B"
+TARGET_GENE = "NS5A"
+AA_REF_GENE = "NS5A_NTD"
 
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        description="Build subtype-level NS5B resistance-position AA profile summary in Excel."
+        description="Build subtype-level NS5A resistance-position AA profile summary in Excel."
     )
     parser.add_argument("--subtype-profile-workbook", required=True)
     parser.add_argument("--gt-aa-json", required=True)
     parser.add_argument("--output-dir", default="outputs")
-    parser.add_argument("--min-sequences", type=int, default=10)
     parser.add_argument(
         "--positions",
         default=",".join(str(pos) for pos in DEFAULT_RESISTANCE_POSITIONS),
@@ -60,7 +60,7 @@ def sanitize_label(value: str) -> str:
 
 
 def make_job_dir(base_output_dir: Path, workbook_path: Path) -> Path:
-    label = sanitize_label(f"{workbook_path.stem}_ns5b_subtype_resistance_profile")
+    label = sanitize_label(f"{workbook_path.stem}_ns5a_subtype_resistance_profile")
     job_dir = base_output_dir / label
     if job_dir.exists():
         shutil.rmtree(job_dir)
@@ -84,7 +84,7 @@ def load_consensus_by_gt(json_path: Path) -> dict[str, str]:
     consensus: dict[str, str] = {}
     for row in rows:
         name = str(row.get("name", ""))
-        match = re.fullmatch(r"HCV([1-8])NS5B", name)
+        match = re.fullmatch(r"HCV([1-8])NS5A_NTD", name)
         if match:
             consensus[match.group(1)] = str(row.get("refSequence", "")).strip().upper()
     return consensus
@@ -128,15 +128,13 @@ def build_grid(
     profile_rows: dict[str, dict[str, dict[int, list[tuple[str, float]]]]],
     subtype_counts: dict[str, dict[str, int]],
     position_coverage: dict[str, dict[str, dict[int, int]]],
-    min_sequences: int,
     positions: list[int],
 ) -> list[list[str]]:
     grid: list[list[str]] = []
     ordered_subtypes: list[tuple[str, str]] = []
     for gt in sorted(subtype_counts, key=int):
         for subtype in sorted(subtype_counts[gt]):
-            if subtype_counts[gt][subtype] >= min_sequences:
-                ordered_subtypes.append((gt, subtype))
+            ordered_subtypes.append((gt, subtype))
 
     for gt, subtype in ordered_subtypes:
         consensus_seq = consensus_by_gt[gt]
@@ -213,25 +211,17 @@ def main() -> int:
 
     consensus_by_gt = load_consensus_by_gt(gt_aa_json)
     profile_rows, subtype_counts, position_coverage = load_subtype_profile_rows(subtype_profile_workbook, positions)
-    grid = build_grid(consensus_by_gt, profile_rows, subtype_counts, position_coverage, args.min_sequences, positions)
+    grid = build_grid(consensus_by_gt, profile_rows, subtype_counts, position_coverage, positions)
 
     output_dir.mkdir(parents=True, exist_ok=True)
-    excel_path = output_dir / "NS5B_Subtype_RAS_Profiles_NGE10.xlsx"
+    excel_path = output_dir / "NS5A_Subtype_RAS_Profiles.xlsx"
     write_excel(excel_path, grid, positions)
-
-    included = []
-    for gt in sorted(subtype_counts, key=int):
-        for subtype in sorted(subtype_counts[gt]):
-            if subtype_counts[gt][subtype] >= args.min_sequences:
-                included.append({"gt": gt, "subtype": subtype, "count": subtype_counts[gt][subtype]})
 
     summary = {
         "excel": str(excel_path.resolve()),
         "gene": TARGET_GENE,
         "positions": positions,
         "frequency_threshold_percent": 0.1,
-        "min_sequences": args.min_sequences,
-        "included_subtypes": included,
     }
     print(json.dumps(summary, indent=2))
     return 0
