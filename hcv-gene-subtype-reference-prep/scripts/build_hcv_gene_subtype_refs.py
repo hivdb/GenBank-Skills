@@ -25,6 +25,34 @@ STOP_SCORE = -6
 AMBIG_SCORE = -3
 FS1_PENALTY = -4
 FS2_PENALTY = -5
+FS3_PENALTY = -3
+CODON_DELETE_PENALTY = -4
+GENE_AA_SIGNATURES: dict[tuple[str, str], tuple[str, str]] = {
+    ("1", "NS3"): ("API", "VVT"),
+    ("1", "NS5A_NTD"): ("SGS", "AEA"),
+    ("1", "NS5B"): ("SMS", "PNR"),
+    ("2", "NS3"): ("API", "VMT"),
+    ("2", "NS5A_NTD"): ("GGS", "AET"),
+    ("2", "NS5B"): ("SMS", "PAR"),
+    ("3", "NS3"): ("API", "VTT"),
+    ("3", "NS5A_NTD"): ("SDD", "AET"),
+    ("3", "NS5B"): ("SMS", "PAR"),
+    ("4", "NS3"): ("API", "VVT"),
+    ("4", "NS5A_NTD"): ("AES", "AES"),
+    ("4", "NS5B"): ("SMS", "PAR"),
+    ("5", "NS3"): ("API", "VIT"),
+    ("5", "NS5A_NTD"): ("DGT", "AET"),
+    ("5", "NS5B"): ("SMS", "PAR"),
+    ("6", "NS3"): ("API", "VIT"),
+    ("6", "NS5A_NTD"): ("ASS", "AET"),
+    ("6", "NS5B"): ("SMS", "PAR"),
+    ("7", "NS3"): ("API", "VTT"),
+    ("7", "NS5A_NTD"): ("AGS", "AET"),
+    ("7", "NS5B"): ("SMS", "PAR"),
+    ("8", "NS3"): ("SPI", "VVT"),
+    ("8", "NS5A_NTD"): ("GNS", "AES"),
+    ("8", "NS5B"): ("SMS", "PNR"),
+}
 CODON_TABLE = {
     "TTT": "F", "TTC": "F", "TTA": "L", "TTG": "L",
     "TCT": "S", "TCC": "S", "TCA": "S", "TCG": "S",
@@ -60,6 +88,10 @@ class AlignmentResult:
     aligned_query_aa: str
     aligned_reference_nt: str
     aligned_query_nt: str
+    signature_match_count: int
+    signature_mismatch_count: int
+    expected_begin_aa: str
+    expected_end_aa: str
 
 
 @dataclass
@@ -67,6 +99,8 @@ class FrameshiftRefinement:
     refined_nt: str
     refined_aa: str
     frameshift_events: int
+    nt_start: int
+    nt_end: int
 
 
 def parse_args() -> argparse.Namespace:
@@ -228,6 +262,12 @@ def write_alignment_scores_xlsx(path: Path, rows: list[dict[str, Any]]) -> None:
         "exact_matches",
         "informative_sites",
         "ignored_query_positions",
+        "signature_match_count",
+        "signature_mismatch_count",
+        "expected_begin_aa",
+        "observed_begin_aa",
+        "expected_end_aa",
+        "observed_end_aa",
         "has_stop_codon",
         "stop_codon_count",
         "stop_codon_positions",
@@ -305,20 +345,54 @@ def aa_pair_score(ref_aa: str, query_aa: str) -> int:
     return MATCH_SCORE if ref_aa == query_aa else MISMATCH_SCORE
 
 
-def is_better_result(
-    candidate: AlignmentResult,
-    incumbent: AlignmentResult | None,
-    minimum_score: float | None = None,
-) -> bool:
+def aa_signature_stats(
+    genotype: str,
+    gene: str,
+    sequence: str,
+) -> tuple[int, int, str, str]:
+    expected_begin, expected_end = GENE_AA_SIGNATURES[(genotype, gene)]
+    observed_begin = sequence[: len(expected_begin)]
+    observed_end = sequence[-len(expected_end) :] if sequence else ""
+
+    matches = 0
+    mismatches = 0
+    if observed_begin == expected_begin:
+        matches += 1
+    else:
+        mismatches += 1
+    if observed_end == expected_end:
+        matches += 1
+    else:
+        mismatches += 1
+    return matches, mismatches, expected_begin, expected_end
+
+
+def is_better_result(candidate: AlignmentResult, incumbent: AlignmentResult | None) -> bool:
     if incumbent is None:
         return True
-    if minimum_score is not None and candidate.score < minimum_score:
+    if candidate.signature_match_count > incumbent.signature_match_count:
+        return True
+    if candidate.signature_match_count < incumbent.signature_match_count:
+        return False
+    if candidate.signature_mismatch_count < incumbent.signature_mismatch_count:
+        return True
+    if candidate.signature_mismatch_count > incumbent.signature_mismatch_count:
         return False
     candidate_stops = len(stop_codon_positions(candidate.extracted_aa))
     incumbent_stops = len(stop_codon_positions(incumbent.extracted_aa))
-    if candidate_stops < incumbent_stops and candidate.score >= incumbent.score:
+    if candidate_stops < incumbent_stops:
         return True
-    if candidate_stops == incumbent_stops and candidate.score > incumbent.score:
+    if candidate_stops > incumbent_stops:
+        return False
+    if candidate.score > incumbent.score:
+        return True
+    if candidate.score < incumbent.score:
+        return False
+    if candidate.informative_sites > incumbent.informative_sites:
+        return True
+    if candidate.informative_sites < incumbent.informative_sites:
+        return False
+    if candidate.ignored_query_positions < incumbent.ignored_query_positions:
         return True
     return False
 
@@ -415,13 +489,13 @@ def aa_alignment_to_codon_alignment(aligned_reference_aa: str, aligned_query_aa:
     return "".join(aligned_reference_nt), "".join(aligned_query_nt)
 
 
-def discover_gene_window(reference_aa: str, query_aa: str) -> tuple[int, int]:
-    local_alignment = build_aligner("local").align(reference_aa, query_aa)[0]
+def discover_gene_window_nt(reference_nt: str, query_nt: str, flank_nt: int = 30) -> tuple[int, int]:
+    local_alignment = build_aligner("local").align(reference_nt, query_nt)[0]
     ref_start, ref_end = alignment_bounds(local_alignment.aligned[0])
     query_start, query_end = alignment_bounds(local_alignment.aligned[1])
 
-    window_start = max(0, query_start - ref_start)
-    window_end = min(len(query_aa), query_end + (len(reference_aa) - ref_end))
+    window_start = max(0, query_start - ref_start - flank_nt)
+    window_end = min(len(query_nt), query_end + (len(reference_nt) - ref_end) + flank_nt)
     return window_start, window_end
 
 
@@ -488,6 +562,17 @@ def frameshift_refine(reference_aa: str, nt_window: str) -> FrameshiftRefinement
                     dp[i][j + 2] = score
                     trace[i][j + 2] = ("skip2", i, j, "")
 
+            if j + 3 <= n:
+                score = current + FS3_PENALTY
+                if score > dp[i][j + 3]:
+                    dp[i][j + 3] = score
+                    trace[i][j + 3] = ("skip3", i, j, "")
+
+            score = current + CODON_DELETE_PENALTY
+            if score > dp[i + 1][j]:
+                dp[i + 1][j] = score
+                trace[i + 1][j] = ("delete_ref", i, j, "")
+
     for j in range(0, n + 1):
         if dp[m][j] > best_score:
             best_score = dp[m][j]
@@ -499,6 +584,8 @@ def frameshift_refine(reference_aa: str, nt_window: str) -> FrameshiftRefinement
     aa_chars: list[str] = []
     kept_nt_chunks: list[str] = []
     frameshift_events = 0
+    nt_start = best_end_j
+    nt_end = best_end_j
     i = m
     j = best_end_j
     while i > 0 or j > 0:
@@ -509,6 +596,8 @@ def frameshift_refine(reference_aa: str, nt_window: str) -> FrameshiftRefinement
         if op == "codon":
             aa_chars.append(aa)
             kept_nt_chunks.append(nt_window[prev_j:j])
+            nt_start = prev_j
+            nt_end = max(nt_end, j)
         else:
             frameshift_events += 1
         i, j = prev_i, prev_j
@@ -519,60 +608,44 @@ def frameshift_refine(reference_aa: str, nt_window: str) -> FrameshiftRefinement
         refined_nt="".join(kept_nt_chunks),
         refined_aa="".join(aa_chars),
         frameshift_events=frameshift_events,
+        nt_start=nt_start,
+        nt_end=nt_end,
     )
 
 
-def maybe_frameshift_refine(
-    nt_sequence: str,
-    frame: int,
-    query_aa_start: int,
-    query_aa_end: int,
+def build_alignment_result(
+    extracted_nt: str,
     reference_nt: str,
-    result: AlignmentResult,
-    enabled: bool,
-    flank_nt: int = 15,
+    genotype: str,
+    gene: str,
+    query_aa_start: int,
+    frame: int,
 ) -> AlignmentResult:
-    if not enabled:
-        return result
-    initial_stop_count = len(stop_codon_positions(result.extracted_aa))
-    if initial_stop_count == 0:
-        return result
-
     reference_aa = translate_nt(reference_nt)
-    initial_nt_start = frame + query_aa_start * 3
-    initial_nt_end = frame + query_aa_end * 3
-    window_start = max(0, initial_nt_start - flank_nt)
-    window_end = min(len(nt_sequence), initial_nt_end + flank_nt)
-    nt_window = nt_sequence[window_start:window_end]
-
-    try:
-        refined = frameshift_refine(reference_aa, nt_window)
-        (
-            refined_score,
-            aligned_reference_aa,
-            aligned_query_aa,
-            aligned_reference_nt,
-            aligned_query_nt,
-            matches,
-            informative,
-            ignored,
-        ) = codon_align_gene(refined.refined_nt, reference_nt, reference_aa)
-    except Exception:
-        return result
-
-    refined_stop_count = len(stop_codon_positions(refined.refined_aa))
-    if refined_stop_count >= initial_stop_count:
-        return result
-    if refined_score < result.score:
-        return result
-
+    extracted_aa = translate_nt(extracted_nt)
+    signature_match_count, signature_mismatch_count, expected_begin_aa, expected_end_aa = aa_signature_stats(
+        genotype,
+        gene,
+        extracted_aa,
+    )
+    (
+        score,
+        aligned_reference_aa,
+        aligned_query_aa,
+        aligned_reference_nt,
+        aligned_query_nt,
+        matches,
+        informative,
+        ignored,
+    ) = codon_align_gene(extracted_nt, reference_nt, reference_aa)
+    query_aa_end = query_aa_start + len(extracted_aa)
     return AlignmentResult(
-        score=refined_score,
+        score=score,
         frame=frame,
         query_aa_start=query_aa_start,
         query_aa_end=query_aa_end,
-        extracted_nt=refined.refined_nt,
-        extracted_aa=refined.refined_aa,
+        extracted_nt=extracted_nt,
+        extracted_aa=extracted_aa,
         exact_matches=matches,
         informative_sites=informative,
         ignored_query_positions=ignored,
@@ -580,77 +653,85 @@ def maybe_frameshift_refine(
         aligned_query_aa=aligned_query_aa,
         aligned_reference_nt=aligned_reference_nt,
         aligned_query_nt=aligned_query_nt,
+        signature_match_count=signature_match_count,
+        signature_mismatch_count=signature_mismatch_count,
+        expected_begin_aa=expected_begin_aa,
+        expected_end_aa=expected_end_aa,
     )
 
 
+def frame_offsets_by_preference(window_start: int, preferred_frame: int | None) -> list[int]:
+    preferred_offset = None
+    if preferred_frame is not None:
+        preferred_offset = (preferred_frame - (window_start % 3)) % 3
+    offsets = [preferred_offset] if preferred_offset is not None else []
+    offsets.extend(offset for offset in range(3) if offset != preferred_offset)
+    return offsets
+
+
 def extract_gene_from_subtype(
+    genotype: str,
+    gene: str,
     nt_sequence: str,
     reference_nt: str,
     enable_frameshift_refinement: bool,
     preferred_frame: int | None = None,
 ) -> AlignmentResult:
     reference_aa = translate_nt(reference_nt)
-    raw_candidates: list[AlignmentResult] = []
-    frames = [preferred_frame] if preferred_frame is not None else []
-    frames.extend(frame for frame in range(3) if frame != preferred_frame)
+    window_start, window_end = discover_gene_window_nt(reference_nt, nt_sequence)
+    nt_window = nt_sequence[window_start:window_end]
+    if not nt_window:
+        raise RuntimeError("No nucleotide window could be extracted from subtype sequence")
 
+    candidates: list[AlignmentResult] = []
     last_error: Exception | None = None
-    for frame in frames:
-        coding_nt, translated = translate_frame(nt_sequence, frame)
+    for frame_offset in frame_offsets_by_preference(window_start, preferred_frame):
+        coding_nt, _translated = translate_frame(nt_window, frame_offset)
+        if not coding_nt:
+            continue
         try:
-            query_aa_start, query_aa_end = discover_gene_window(reference_aa, translated)
-            extracted_nt = coding_nt[query_aa_start * 3 : query_aa_end * 3]
-            extracted_aa = translated[query_aa_start:query_aa_end]
-            (
-                score,
-                aligned_reference_aa,
-                aligned_query_aa,
-                aligned_reference_nt,
-                aligned_query_nt,
-                matches,
-                informative,
-                ignored,
-            ) = codon_align_gene(extracted_nt, reference_nt, reference_aa)
+            query_aa_start = (window_start + frame_offset) // 3
+            candidates.append(
+                build_alignment_result(
+                    extracted_nt=coding_nt,
+                    reference_nt=reference_nt,
+                    genotype=genotype,
+                    gene=gene,
+                    query_aa_start=query_aa_start,
+                    frame=(window_start + frame_offset) % 3,
+                )
+            )
         except Exception as exc:
             last_error = exc
-            continue
+    if enable_frameshift_refinement:
+        try:
+            refined = frameshift_refine(reference_aa, nt_window)
+            if refined.refined_nt:
+                query_aa_start = (window_start + refined.nt_start) // 3
+                candidates.append(
+                    build_alignment_result(
+                        extracted_nt=refined.refined_nt,
+                        reference_nt=reference_nt,
+                        genotype=genotype,
+                        gene=gene,
+                        query_aa_start=query_aa_start,
+                        frame=(window_start + refined.nt_start) % 3,
+                    )
+                )
+        except Exception as exc:
+            last_error = exc
 
-        candidate = AlignmentResult(
-            score=score,
-            frame=frame,
-            query_aa_start=query_aa_start,
-            query_aa_end=query_aa_end,
-            extracted_nt=extracted_nt,
-            extracted_aa=extracted_aa,
-            exact_matches=matches,
-            informative_sites=informative,
-            ignored_query_positions=ignored,
-            aligned_reference_aa=aligned_reference_aa,
-            aligned_query_aa=aligned_query_aa,
-            aligned_reference_nt=aligned_reference_nt,
-            aligned_query_nt=aligned_query_nt,
-        )
-        raw_candidates.append(candidate)
-
-    if not raw_candidates:
+    if not candidates:
         if last_error is not None:
             raise RuntimeError(str(last_error))
         raise RuntimeError("No alignment result could be computed")
 
-    baseline_best = max(raw_candidates, key=lambda row: row.score)
-    best = baseline_best
-    for candidate in raw_candidates:
-        candidate = maybe_frameshift_refine(
-            nt_sequence,
-            candidate.frame,
-            candidate.query_aa_start,
-            candidate.query_aa_end,
-            reference_nt,
-            candidate,
-            enabled=enable_frameshift_refinement,
-        )
-        if is_better_result(candidate, best, minimum_score=baseline_best.score):
+    best: AlignmentResult | None = None
+    for candidate in candidates:
+        if is_better_result(candidate, best):
             best = candidate
+    if best is None:
+        raise RuntimeError("No alignment result could be selected")
     return best
 
 
@@ -676,7 +757,8 @@ def write_alignment_report(path: Path, alignments: list[dict[str, Any]], width_c
             handle.write(header + "\n")
             handle.write(
                 "score={score:.6f} frame={frame} aa_range={start}-{end} aa_length={aa_length} "
-                "exact_matches={matches}/{informative} ignored_query_positions={ignored}\n".format(
+                "exact_matches={matches}/{informative} ignored_query_positions={ignored} "
+                "signature_matches={signature_matches} signature_mismatches={signature_mismatches}\n".format(
                     score=row["alignment_score"],
                     frame=row["frame"],
                     start=row["query_aa_start"],
@@ -685,6 +767,17 @@ def write_alignment_report(path: Path, alignments: list[dict[str, Any]], width_c
                     matches=row["exact_matches"],
                     informative=row["informative_sites"],
                     ignored=row["ignored_query_positions"],
+                    signature_matches=row["signature_match_count"],
+                    signature_mismatches=row["signature_mismatch_count"],
+                )
+            )
+            handle.write(
+                "expected_begin={expected_begin} observed_begin={observed_begin} "
+                "expected_end={expected_end} observed_end={observed_end}\n".format(
+                    expected_begin=row["expected_begin_aa"],
+                    observed_begin=row["observed_begin_aa"],
+                    expected_end=row["expected_end_aa"],
+                    observed_end=row["observed_end_aa"],
                 )
             )
             marker = build_alignment_marker(row["aligned_reference_aa"], row["aligned_query_aa"])
@@ -742,8 +835,10 @@ def main() -> int:
         for gene in TARGET_GENES:
             reference_nt = gt_refs[(genotype, gene)]
             result = extract_gene_from_subtype(
-                nt_sequence,
-                reference_nt,
+                genotype=genotype,
+                gene=gene,
+                nt_sequence=nt_sequence,
+                reference_nt=reference_nt,
                 enable_frameshift_refinement=args.enable_frameshift_refinement,
                 preferred_frame=preferred_frame,
             )
@@ -772,6 +867,12 @@ def main() -> int:
                     "exact_matches": result.exact_matches,
                     "informative_sites": result.informative_sites,
                     "ignored_query_positions": result.ignored_query_positions,
+                    "signature_match_count": result.signature_match_count,
+                    "signature_mismatch_count": result.signature_mismatch_count,
+                    "expected_begin_aa": result.expected_begin_aa,
+                    "observed_begin_aa": result.extracted_aa[: len(result.expected_begin_aa)],
+                    "expected_end_aa": result.expected_end_aa,
+                    "observed_end_aa": result.extracted_aa[-len(result.expected_end_aa) :],
                     "has_stop_codon": bool(stop_positions),
                     "stop_codon_count": len(stop_positions),
                     "stop_codon_positions": ",".join(map(str, stop_positions)),
@@ -794,6 +895,12 @@ def main() -> int:
                     "exact_matches": result.exact_matches,
                     "informative_sites": result.informative_sites,
                     "ignored_query_positions": result.ignored_query_positions,
+                    "signature_match_count": result.signature_match_count,
+                    "signature_mismatch_count": result.signature_mismatch_count,
+                    "expected_begin_aa": result.expected_begin_aa,
+                    "observed_begin_aa": result.extracted_aa[: len(result.expected_begin_aa)],
+                    "expected_end_aa": result.expected_end_aa,
+                    "observed_end_aa": result.extracted_aa[-len(result.expected_end_aa) :],
                     "has_stop_codon": bool(stop_positions),
                     "stop_codon_count": len(stop_positions),
                     "stop_codon_positions": ",".join(map(str, stop_positions)),
