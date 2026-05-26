@@ -7,6 +7,7 @@ import csv
 import os
 import re
 import shutil
+import subprocess
 import tempfile
 from io import StringIO
 from multiprocessing import Pool
@@ -25,6 +26,9 @@ except ModuleNotFoundError as exc:  # pragma: no cover
 FASTA_EXTENSIONS = {".fa", ".faa", ".fasta", ".fna", ".fas", ".ffn", ".frn", ".seq"}
 ACCESSION_RE = re.compile(r"^ACCESSION\s+(\S+)", re.MULTILINE)
 COMMENT_RE = re.compile(r"^COMMENT\s+(.+?)(?=^FEATURES\s)", re.MULTILINE | re.DOTALL)
+TARGET_GENES = ("NS3", "NS5A", "NS5B")
+NUCLEOTIDE_CHARS = set("ACGTUNWSMKRYBDHV")
+BLAST_OUTFMT = "6 qseqid sseqid bitscore evalue length pident"
 
 
 def parse_args() -> argparse.Namespace:
@@ -132,9 +136,12 @@ def iter_fasta_paths(fasta_dir: Path) -> list[Path]:
     )
 
 
-def collect_accessions_from_fastas(fasta_paths: list[Path]) -> tuple[list[str], dict[str, str], dict[str, str], int]:
+def collect_accessions_from_fastas(
+    fasta_paths: list[Path],
+) -> tuple[list[str], dict[str, str], dict[str, str], dict[str, str], int]:
     accession_by_file: dict[str, str] = {}
     refid_by_accession: dict[str, str] = {}
+    sequence_by_accession: dict[str, str] = {}
     total_accession_records = 0
 
     for fasta_path in fasta_paths:
@@ -148,6 +155,7 @@ def collect_accessions_from_fastas(fasta_paths: list[Path]) -> tuple[list[str], 
                 raise RuntimeError(f"Duplicate accession across FASTA files or records: {accession}")
             accession_by_file[accession] = str(fasta_path.resolve())
             refid_by_accession[accession] = refid
+            sequence_by_accession[accession] = str(record.seq).strip().upper()
 
     accessions = sorted(accession_by_file)
     if not accessions:
@@ -156,7 +164,7 @@ def collect_accessions_from_fastas(fasta_paths: list[Path]) -> tuple[list[str], 
         raise RuntimeError(
             f"Unique accession count ({len(accessions)}) does not match total FASTA accession record count ({total_accession_records})"
         )
-    return accessions, accession_by_file, refid_by_accession, total_accession_records
+    return accessions, accession_by_file, refid_by_accession, sequence_by_accession, total_accession_records
 
 
 def iter_raw_genbank_records(path: Path) -> Any:
@@ -239,8 +247,6 @@ def process_extracted_record(task: tuple[str, str, str]) -> dict[str, str]:
     row: dict[str, str] = {
         "RefID": refid,
         "Accession": accession,
-        "definition": str(record.description or ""),
-        "source_feature_present": "yes" if source else "no",
         "StructuredComment": extract_raw_structured_comment(record_text),
     }
     for key, value in sorted(qualifiers.items()):
@@ -281,10 +287,7 @@ def build_rows(
             {
                 "RefID": refid_by_accession.get(accession, ""),
                 "Accession": accession,
-                "definition": "",
-                "source_feature_present": "no",
                 "StructuredComment": "",
-                "status": "genbank_record_not_found",
             }
         )
 
@@ -295,13 +298,155 @@ def ordered_fieldnames(rows: list[dict[str, str]]) -> list[str]:
     preferred = [
         "RefID",
         "Accession",
-        "definition",
-        "source_feature_present",
+        "NS3",
+        "NS5A",
+        "NS5B",
         "StructuredComment",
-        "status",
     ]
     discovered = sorted({key for row in rows for key in row.keys() if key not in preferred})
     return preferred + discovered
+
+
+def normalize_sequence_for_blast(sequence: str) -> str:
+    return re.sub(r"[^A-Z*]", "", sequence.upper())
+
+
+def sequence_is_nucleotide(sequence: str) -> bool:
+    letters = [char for char in normalize_sequence_for_blast(sequence) if char.isalpha()]
+    if not letters:
+        return False
+    return all(char in NUCLEOTIDE_CHARS for char in letters)
+
+
+def write_fasta_entries(path: Path, entries: list[tuple[str, str]]) -> None:
+    with path.open("w", encoding="utf-8") as handle:
+        for header, sequence in entries:
+            handle.write(f">{header}\n{sequence}\n")
+
+
+def run_command(cmd: list[str], cwd: Path | None = None) -> None:
+    try:
+        subprocess.run(
+            cmd,
+            cwd=str(cwd) if cwd is not None else None,
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+    except FileNotFoundError as exc:
+        raise RuntimeError(f"Required executable not found: {cmd[0]}") from exc
+    except subprocess.CalledProcessError as exc:
+        stderr = exc.stderr.strip() if exc.stderr else ""
+        stdout = exc.stdout.strip() if exc.stdout else ""
+        details = stderr or stdout or str(exc)
+        raise RuntimeError(f"Command failed: {' '.join(cmd)}\n{details}") from exc
+
+
+def build_hcv_blast_db(reference_fasta: Path, db_prefix: Path) -> None:
+    run_command(
+        [
+            "makeblastdb",
+            "-in",
+            str(reference_fasta),
+            "-dbtype",
+            "prot",
+            "-out",
+            str(db_prefix),
+        ]
+    )
+
+
+def parse_blast_hits(blast_output: str) -> dict[str, set[str]]:
+    hits_by_accession: dict[str, set[str]] = {}
+    for line in blast_output.splitlines():
+        if not line.strip():
+            continue
+        columns = line.split("\t")
+        if len(columns) < 2:
+            continue
+        accession, gene = columns[0].strip(), columns[1].strip()
+        if gene not in TARGET_GENES:
+            continue
+        hits_by_accession.setdefault(accession, set()).add(gene)
+    return hits_by_accession
+
+
+def run_blast_search(query_fasta: Path, db_prefix: Path, program: str) -> dict[str, set[str]]:
+    if query_fasta.stat().st_size == 0:
+        return {}
+    completed = subprocess.run(
+        [
+            program,
+            "-query",
+            str(query_fasta),
+            "-db",
+            str(db_prefix),
+            "-outfmt",
+            BLAST_OUTFMT,
+            "-evalue",
+            "1e-8",
+        ],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    return parse_blast_hits(completed.stdout)
+
+
+def merge_gene_hits(*hit_maps: dict[str, set[str]]) -> dict[str, set[str]]:
+    merged: dict[str, set[str]] = {}
+    for hit_map in hit_maps:
+        for accession, genes in hit_map.items():
+            merged.setdefault(accession, set()).update(genes)
+    return merged
+
+
+def detect_genes_by_blast(sequence_by_accession: dict[str, str], temp_dir: Path) -> dict[str, set[str]]:
+    reference_fasta = repo_root() / "HCV.fasta"
+    if not reference_fasta.is_file():
+        raise RuntimeError(f"HCV reference FASTA not found: {reference_fasta}")
+
+    protein_entries: list[tuple[str, str]] = []
+    nucleotide_entries: list[tuple[str, str]] = []
+    for accession, sequence in sorted(sequence_by_accession.items()):
+        normalized = normalize_sequence_for_blast(sequence)
+        if not normalized:
+            continue
+        if sequence_is_nucleotide(normalized):
+            nucleotide_entries.append((accession, normalized))
+        else:
+            protein_entries.append((accession, normalized))
+
+    protein_query = temp_dir / "accession_queries_protein.fasta"
+    nucleotide_query = temp_dir / "accession_queries_nucleotide.fasta"
+    write_fasta_entries(protein_query, protein_entries)
+    write_fasta_entries(nucleotide_query, nucleotide_entries)
+
+    db_prefix = temp_dir / "hcv_gene_refs"
+    build_hcv_blast_db(reference_fasta, db_prefix)
+    protein_hits = run_blast_search(protein_query, db_prefix, "blastp")
+    nucleotide_hits = run_blast_search(nucleotide_query, db_prefix, "blastx")
+    return merge_gene_hits(protein_hits, nucleotide_hits)
+
+
+def annotate_and_filter_rows(
+    rows: list[dict[str, str]],
+    gene_hits_by_accession: dict[str, set[str]],
+) -> tuple[list[dict[str, str]], int]:
+    kept_rows: list[dict[str, str]] = []
+    removed_count = 0
+
+    for row in rows:
+        accession = row["Accession"]
+        hits = gene_hits_by_accession.get(accession, set())
+        for gene in TARGET_GENES:
+            row[gene] = "yes" if gene in hits else ""
+        if hits:
+            kept_rows.append(row)
+        else:
+            removed_count += 1
+
+    return kept_rows, removed_count
 
 
 def write_csv(path: Path, rows: list[dict[str, str]], fieldnames: list[str]) -> None:
@@ -343,10 +488,17 @@ def main() -> int:
     fasta_paths = iter_fasta_paths(fasta_dir)
     if not fasta_paths:
         raise RuntimeError(f"No FASTA files were found in directory: {fasta_dir}")
-    target_accessions, _fasta_file_by_accession, refid_by_accession, total_accession_records = collect_accessions_from_fastas(fasta_paths)
+    (
+        target_accessions,
+        _fasta_file_by_accession,
+        refid_by_accession,
+        sequence_by_accession,
+        total_accession_records,
+    ) = collect_accessions_from_fastas(fasta_paths)
 
     extracted_dir = Path(tempfile.mkdtemp(prefix="accessions_metadata_", dir=script_temp_dir()))
     try:
+        gene_hits_by_accession = detect_genes_by_blast(sequence_by_accession, extracted_dir)
         gb_archive_file_by_accession = extract_matching_genbank_records(
             genbank_dir,
             set(target_accessions),
@@ -364,8 +516,10 @@ def main() -> int:
             raise RuntimeError(
                 f"Output row count ({len(rows)}) does not match total FASTA accession record count ({total_accession_records})"
             )
+        rows, removed_accession_count = annotate_and_filter_rows(rows, gene_hits_by_accession)
         fieldnames = ordered_fieldnames(rows)
         write_csv(output_csv, rows, fieldnames)
+        print(f"Removing {removed_accession_count} accessions without NS3, NS5A, or NS5B hits")
 
         print(
             {
@@ -377,6 +531,8 @@ def main() -> int:
                 "fasta_accession_record_count": total_accession_records,
                 "accession_count": len(target_accessions),
                 "extracted_genbank_record_count": len(gb_archive_file_by_accession),
+                "gene_hit_accession_count": len(gene_hits_by_accession),
+                "removed_accession_count": removed_accession_count,
                 "row_count": len(rows),
                 "missing_accession_count": len(missing_accessions),
                 "workers": workers,
