@@ -5,12 +5,14 @@ from __future__ import annotations
 import argparse
 import csv
 import json
+import re
 import shutil
 import subprocess
 import sys
 from pathlib import Path
 from typing import Any
 
+from Bio import Align
 from openpyxl import Workbook
 
 
@@ -19,8 +21,10 @@ DEFAULT_METADATA_CSV = REPO_ROOT / "temp/build_accessions_metadata_csv/Accession
 DEFAULT_OUTPUT_ROOT = REPO_ROOT / "temp/metadata_subtype_consensus_workflow"
 DEFAULT_SUBTYPE_JSON = REPO_ROOT / "HCV_Subtype_Refs_By_Genome_NA.json"
 DEFAULT_GT_AA_JSON = REPO_ROOT / "HCV_GT_Refs_By_Gene_AA.json"
+DEFAULT_GT_AA_FASTA = REPO_ROOT / "HCV_GT_Refs_NS3_NS5A_NTD_NS5B_AA.fasta"
 DEFAULT_REFERENCE_FASTA = REPO_ROOT / "HCV_GT_RefSeqs.fasta"
 GENES = ("NS3", "NS5A", "NS5B")
+GT_REF_GENE_BY_GENE = {"NS3": "NS3", "NS5A": "NS5A_NTD", "NS5B": "NS5B"}
 
 
 def parse_args() -> argparse.Namespace:
@@ -30,16 +34,23 @@ def parse_args() -> argparse.Namespace:
             "from an accession metadata CSV and a RefID-organized FASTA directory."
         )
     )
-    parser.add_argument("--fasta-dir", required=True, help="Directory containing FASTA files named with RefID prefixes")
+    parser.add_argument("--fasta-dir", help="Directory containing FASTA files named with RefID prefixes")
     parser.add_argument("--metadata-csv", default=str(DEFAULT_METADATA_CSV))
     parser.add_argument("--output-root", default=str(DEFAULT_OUTPUT_ROOT))
     parser.add_argument("--subtype-json", default=str(DEFAULT_SUBTYPE_JSON))
     parser.add_argument("--gt-aa-json", default=str(DEFAULT_GT_AA_JSON))
+    parser.add_argument("--gt-aa-fasta", default=str(DEFAULT_GT_AA_FASTA))
     parser.add_argument("--reference-fasta", default=str(DEFAULT_REFERENCE_FASTA))
     parser.add_argument("--python-bin", default=sys.executable)
     parser.add_argument("--genes", nargs="+", choices=GENES, default=list(GENES))
     parser.add_argument("--min-aligned-nt", type=int, default=200)
     parser.add_argument("--min-aa-overlap", type=int, default=80)
+    parser.add_argument("--alignment-width", type=int, default=80)
+    parser.add_argument(
+        "--only-consensus-alignments",
+        action="store_true",
+        help="Only align existing *_Subtype_Consensus.fasta files to genotype AA references and write text reports.",
+    )
     return parser.parse_args()
 
 
@@ -205,6 +216,154 @@ def workflow_scripts(gene: str) -> dict[str, Path]:
     }
 
 
+def build_aa_aligner() -> Align.PairwiseAligner:
+    aligner = Align.PairwiseAligner(mode="global")
+    aligner.match_score = 2.0
+    aligner.mismatch_score = -1.0
+    aligner.open_gap_score = -5.0
+    aligner.extend_gap_score = -1.0
+    return aligner
+
+
+def alignment_strings(reference: str, query: str, coordinates: Any) -> tuple[str, str]:
+    ref_chunks: list[str] = []
+    query_chunks: list[str] = []
+    ref_points = coordinates[0]
+    query_points = coordinates[1]
+    for idx in range(len(ref_points) - 1):
+        ref_start = int(ref_points[idx])
+        ref_end = int(ref_points[idx + 1])
+        query_start = int(query_points[idx])
+        query_end = int(query_points[idx + 1])
+        ref_span = ref_end - ref_start
+        query_span = query_end - query_start
+        if ref_span > 0 and query_span > 0:
+            if ref_span != query_span:
+                raise RuntimeError("Unexpected alignment segment with unequal spans")
+            ref_chunks.append(reference[ref_start:ref_end])
+            query_chunks.append(query[query_start:query_end])
+        elif ref_span > 0:
+            ref_chunks.append(reference[ref_start:ref_end])
+            query_chunks.append("-" * ref_span)
+        elif query_span > 0:
+            ref_chunks.append("-" * query_span)
+            query_chunks.append(query[query_start:query_end])
+    return "".join(ref_chunks), "".join(query_chunks)
+
+
+def alignment_marker(reference: str, query: str) -> str:
+    chars: list[str] = []
+    for ref_char, query_char in zip(reference, query):
+        if ref_char == "-" or query_char == "-" or query_char in {"X", "*"}:
+            chars.append(" ")
+        elif ref_char == query_char:
+            chars.append("|")
+        else:
+            chars.append(".")
+    return "".join(chars)
+
+
+def parse_consensus_genotype(header: str) -> str:
+    match = re.match(r"GT([1-8])_", header)
+    if not match:
+        raise RuntimeError(f"Could not parse genotype from subtype consensus header: {header}")
+    return match.group(1)
+
+
+def parse_gt_ref_header(header: str) -> tuple[str, str] | None:
+    parts = [part.strip() for part in header.split("|")]
+    if len(parts) < 2:
+        return None
+    match = re.fullmatch(r"genotype\s+([1-8])", parts[0], flags=re.IGNORECASE)
+    if not match:
+        return None
+    return match.group(1), parts[1]
+
+
+def load_gt_aa_fasta_refs(path: Path) -> dict[tuple[str, str], str]:
+    refs: dict[tuple[str, str], str] = {}
+    for header, sequence in parse_fasta(path):
+        parsed = parse_gt_ref_header(header)
+        if parsed is None:
+            continue
+        refs[parsed] = sequence
+    return refs
+
+
+def write_consensus_alignment_report(
+    gene: str,
+    consensus_fasta: Path,
+    gt_refs: dict[tuple[str, str], str],
+    gt_aa_fasta: Path,
+    output_path: Path,
+    width: int,
+) -> dict[str, Any]:
+    ref_gene = GT_REF_GENE_BY_GENE[gene]
+    records = parse_fasta(consensus_fasta)
+    aligner = build_aa_aligner()
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    aligned_count = 0
+
+    with output_path.open("w", encoding="utf-8") as handle:
+        for idx, (header, sequence) in enumerate(records, start=1):
+            gt = parse_consensus_genotype(header)
+            reference = gt_refs.get((gt, ref_gene))
+            if reference is None:
+                raise RuntimeError(f"Missing genotype {gt} {ref_gene} AA reference in {gt_aa_fasta}")
+
+            alignment = aligner.align(reference, sequence)[0]
+            aligned_ref, aligned_query = alignment_strings(reference, sequence, alignment.coordinates)
+            marker = alignment_marker(aligned_ref, aligned_query)
+            informative = sum(
+                1
+                for ref_char, query_char in zip(aligned_ref, aligned_query)
+                if ref_char != "-" and query_char not in {"-", "X", "*"}
+            )
+            matches = marker.count("|")
+            identity = matches / informative if informative else 0.0
+
+            handle.write(f"[{idx}] gene={gene} subtype_consensus={header} genotype=GT{gt} reference={ref_gene}\n")
+            handle.write(
+                f"score={alignment.score:.3f} identity={matches}/{informative} ({identity:.3%}) "
+                f"reference_length={len(reference)} consensus_length={len(sequence)}\n"
+            )
+            for start in range(0, len(aligned_ref), width):
+                end = start + width
+                handle.write(f"REF  {start + 1:>5} {aligned_ref[start:end]}\n")
+                handle.write(f"           {marker[start:end]}\n")
+                handle.write(f"CONS {start + 1:>5} {aligned_query[start:end]}\n\n")
+            aligned_count += 1
+
+    return {
+        "gene": gene,
+        "consensus_fasta": str(consensus_fasta.resolve()),
+        "alignment_txt": str(output_path.resolve()),
+        "records_aligned": aligned_count,
+    }
+
+
+def run_consensus_alignment_report(args: argparse.Namespace, output_root: Path, gene: str) -> dict[str, Any]:
+    gt_aa_fasta = Path(args.gt_aa_fasta).expanduser()
+    gt_refs = load_gt_aa_fasta_refs(gt_aa_fasta)
+    gene_dir = output_root / gene
+    consensus_fasta = gene_dir / f"{gene}_Subtype_Consensus.fasta"
+    if not consensus_fasta.exists():
+        raise RuntimeError(f"Missing subtype consensus FASTA: {consensus_fasta}")
+    output_path = gene_dir / f"{gene}_Subtype_Consensus_GT_Alignment.txt"
+    return write_consensus_alignment_report(
+        gene=gene,
+        consensus_fasta=consensus_fasta,
+        gt_refs=gt_refs,
+        gt_aa_fasta=gt_aa_fasta,
+        output_path=output_path,
+        width=args.alignment_width,
+    )
+
+
+def run_consensus_alignment_reports(args: argparse.Namespace, output_root: Path) -> list[dict[str, Any]]:
+    return [run_consensus_alignment_report(args, output_root, gene) for gene in args.genes]
+
+
 def run_gene(args: argparse.Namespace, gene: str, output_root: Path) -> dict[str, Any]:
     fasta_dir = Path(args.fasta_dir).expanduser()
     metadata_csv = Path(args.metadata_csv).expanduser()
@@ -319,6 +478,7 @@ def run_gene(args: argparse.Namespace, gene: str, output_root: Path) -> dict[str
         ],
         gene_dir / f"{gene}_subtype_consensus_summary.json",
     )
+    consensus_alignment_summary = run_consensus_alignment_report(args, output_root, gene)
 
     return {
         "gene": gene,
@@ -331,18 +491,33 @@ def run_gene(args: argparse.Namespace, gene: str, output_root: Path) -> dict[str
         "aa_extraction": aa_summary,
         "complete_profiles": profile_summary,
         "subtype_consensus": consensus_summary,
+        "subtype_consensus_alignment": consensus_alignment_summary,
     }
 
 
 def main() -> int:
     args = parse_args()
+    if not args.only_consensus_alignments and not args.fasta_dir:
+        raise SystemExit("--fasta-dir is required unless --only-consensus-alignments is used")
     output_root = Path(args.output_root).expanduser()
     output_root.mkdir(parents=True, exist_ok=True)
+
+    if args.only_consensus_alignments:
+        alignment_summaries = run_consensus_alignment_reports(args, output_root)
+        summary = {
+            "output_root": str(output_root.resolve()),
+            "gt_aa_fasta": str(Path(args.gt_aa_fasta).expanduser().resolve()),
+            "genes": alignment_summaries,
+        }
+        summary_path = output_root / "consensus_alignment_summary.json"
+        summary_path.write_text(json.dumps(summary, indent=2) + "\n", encoding="utf-8")
+        print(json.dumps(summary, indent=2))
+        return 0
 
     summaries = [run_gene(args, gene, output_root) for gene in args.genes]
     summary = {
         "metadata_csv": str(Path(args.metadata_csv).expanduser().resolve()),
-        "fasta_dir": str(Path(args.fasta_dir).expanduser().resolve()),
+        "fasta_dir": str(Path(args.fasta_dir or "").expanduser().resolve()),
         "output_root": str(output_root.resolve()),
         "genes": summaries,
     }
