@@ -48,6 +48,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--fasta-dir", required=True)
     parser.add_argument("--gt-aa-json", required=True)
     parser.add_argument("--output-dir", default="outputs")
+    parser.add_argument("--output-workbook")
     parser.add_argument("--min-aa-overlap", type=int, default=80)
     return parser.parse_args()
 
@@ -405,7 +406,12 @@ def main() -> int:
             pass
 
     output_rows.sort(key=lambda row: (int(row["RefID"]), row["AccessionID"]))
-    workbook_path = make_temp_output_path("NS5B_Subtype_With_GT_AA.xlsx")
+    workbook_path = (
+        Path(args.output_workbook).expanduser()
+        if args.output_workbook
+        else make_temp_output_path("NS5B_Subtype_With_GT_AA.xlsx")
+    )
+    workbook_path.parent.mkdir(parents=True, exist_ok=True)
     write_output(workbook_path, header, output_rows)
     summary = {
         "output_workbook": str(workbook_path.resolve()),

@@ -47,6 +47,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--fasta-dir", required=True)
     parser.add_argument("--gt-aa-json", required=True)
     parser.add_argument("--output-dir", default="outputs")
+    parser.add_argument("--output-workbook")
     parser.add_argument("--min-aa-overlap", type=int, default=80)
     return parser.parse_args()
 
@@ -412,7 +413,12 @@ def main() -> int:
         else:
             row["StartAAPosition"], row["EndAAPosition"], row["AASequence"] = value
 
-    out_path = make_temp_output_path("NS3_Subtype_Alignments_with_GT_AA_Extraction.xlsx")
+    out_path = (
+        Path(args.output_workbook).expanduser()
+        if args.output_workbook
+        else make_temp_output_path("NS3_Subtype_Alignments_with_GT_AA_Extraction.xlsx")
+    )
+    out_path.parent.mkdir(parents=True, exist_ok=True)
     write_workbook(out_path, header, rows)
     summary["output_workbook"] = str(out_path.resolve())
     summary["rows_with_aa"] = sum(1 for row in rows if row.get("AASequence"))

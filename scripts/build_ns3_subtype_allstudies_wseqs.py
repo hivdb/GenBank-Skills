@@ -181,8 +181,8 @@ def load_subtype_references(json_path: Path) -> dict[str, list[dict[str, str]]]:
     refs_by_gt: dict[str, list[dict[str, str]]] = defaultdict(list)
     for rec in data:
         genotype_name = str(rec.get("genotypeName", "")).strip()
-        match = re.search(r"Genotype\s*([0-9]+[A-Za-z]?)", genotype_name) or re.search(
-            r"Genotype([0-9]+[A-Za-z]?)", genotype_name
+        match = re.search(r"Genotype\s*([0-9]+[A-Za-z0-9]*)", genotype_name) or re.search(
+            r"Genotype([0-9]+[A-Za-z0-9]*)", genotype_name
         )
         if not match:
             continue
