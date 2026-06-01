@@ -1,0 +1,4 @@
+interface:
+  display_name: "HCV Metadata Subtype Consensus Workflow"
+  short_description: "Build subtype consensus profiles from metadata"
+  default_prompt: "Use $hcv-metadata-subtype-consensus-workflow to build NS3, NS5A, and NS5B subtype complete-profile workbooks, subtype consensus FASTAs, and consensus-to-genotype alignment reports from accession metadata and RefID FASTA files."

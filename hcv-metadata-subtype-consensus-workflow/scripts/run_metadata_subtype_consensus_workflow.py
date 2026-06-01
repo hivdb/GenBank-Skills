@@ -16,7 +16,8 @@ from Bio import Align
 from openpyxl import Workbook
 
 
-REPO_ROOT = Path(__file__).resolve().parents[1]
+SCRIPT_DIR = Path(__file__).resolve().parent
+REPO_ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_METADATA_CSV = REPO_ROOT / "temp/build_accessions_metadata_csv/Accessions_metadata.csv"
 DEFAULT_OUTPUT_ROOT = REPO_ROOT / "temp/metadata_subtype_consensus_workflow"
 DEFAULT_SUBTYPE_JSON = REPO_ROOT / "HCV_Subtype_Refs_By_Genome_NA.json"
@@ -208,11 +209,12 @@ def run_json_command(command: list[str], summary_path: Path) -> dict[str, Any]:
 
 def workflow_scripts(gene: str) -> dict[str, Path]:
     lower = gene.lower()
+    skill_dir = REPO_ROOT / f"hcv-{lower}-build-workflow" / "scripts"
     return {
-        "gt": REPO_ROOT / f"scripts/build_{lower}_gt_allstudies.py",
-        "subtype": REPO_ROOT / f"scripts/build_{lower}_subtype_allstudies_wseqs.py",
-        "aa": REPO_ROOT / f"scripts/build_{lower}_subtype_with_gt_aa.py",
-        "profiles": REPO_ROOT / f"scripts/build_{lower}_completeprofiles_tabspergt.py",
+        "gt": skill_dir / f"build_{lower}_gt_allstudies.py",
+        "subtype": skill_dir / f"build_{lower}_subtype_allstudies_wseqs.py",
+        "aa": skill_dir / f"build_{lower}_subtype_with_gt_aa.py",
+        "profiles": skill_dir / f"build_{lower}_completeprofiles_tabspergt.py",
     }
 
 
@@ -468,7 +470,7 @@ def run_gene(args: argparse.Namespace, gene: str, output_root: Path) -> dict[str
     consensus_summary = run_json_command(
         [
             args.python_bin,
-            str(REPO_ROOT / "scripts/export_subtype_consensus_fasta.py"),
+            str(SCRIPT_DIR / "export_subtype_consensus_fasta.py"),
             "--gene",
             gene,
             "--subtype-profile-workbook",

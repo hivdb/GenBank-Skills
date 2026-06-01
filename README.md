@@ -359,11 +359,14 @@ Cache behavior:
 - `genbank-gene-split-alignment/`: Extract nucleotide sequences from GenBank records, align to nucleotide or amino-acid reference genes, and save one codon-preserving nucleotide FASTA per matched gene.
 - `hcv-excel-refid-fasta-discovery/`: Filter HCV workbook rows by RefID/patient counts and find matching FASTA files.
 - `hcv-gene-genotype-subtype-ref-alignment/`: Build reusable HCV gene genotype/subtype reference alignments and FASTA files.
+- `hcv-accessions-metadata-csv/`: Build accession metadata CSVs from RefID FASTA files and local GenBank archives.
 - `hcv-ns3-build-workflow/`: Build NS3 genotype, subtype, source-feature, complete-profile, and RAS reports.
 - `hcv-ns5a-build-workflow/`: Build NS5A genotype, subtype, source-feature, complete-profile, and RAS reports.
 - `hcv-ns5b-build-workflow/`: Build NS5B genotype, subtype, source-feature, complete-profile, and RAS reports.
+- `hcv-metadata-subtype-consensus-workflow/`: Build metadata-driven subtype complete profiles, subtype consensus FASTAs, and consensus-to-genotype alignment reports.
 
 The NS3/NS5A/NS5B build workflow wrappers live inside their skill folders. They still load `.env` and `pipeline.local.toml` from the repository root; keep both configuration files in the base folder. Each build workflow skill carries its own `scripts/load_pipeline_defaults.py` helper and passes it the root TOML path explicitly.
+The metadata subtype consensus workflow depends on the NS3/NS5A/NS5B build workflow skills and should warn users to complete the required metadata, FASTA, and reference-prep steps before running.
 
 ## Repository Layout
 
@@ -397,6 +400,12 @@ The NS3/NS5A/NS5B build workflow wrappers live inside their skill folders. They 
 │       └── fetch_genbank_accession.py
 ├── hcv-excel-refid-fasta-discovery/
 ├── hcv-gene-genotype-subtype-ref-alignment/
+├── hcv-accessions-metadata-csv/
+│   ├── SKILL.md
+│   ├── agents/
+│   │   └── openai.yaml
+│   └── scripts/
+│       └── build_accessions_metadata_csv.py
 ├── hcv-ns3-build-workflow/
 │   ├── SKILL.md
 │   ├── NS3_workflow.svg
@@ -415,15 +424,22 @@ The NS3/NS5A/NS5B build workflow wrappers live inside their skill folders. They 
 │       ├── run_ns5a_pipeline.sh
 │       ├── load_pipeline_defaults.py
 │       └── build_ns5a_*.py
-└── hcv-ns5b-build-workflow/
+├── hcv-ns5b-build-workflow/
+│   ├── SKILL.md
+│   ├── NS5B_workflow.svg
+│   ├── agents/
+│   │   └── openai.yaml
+│   └── scripts/
+│       ├── run_ns5b_pipeline.sh
+│       ├── load_pipeline_defaults.py
+│       └── build_ns5b_*.py
+└── hcv-metadata-subtype-consensus-workflow/
     ├── SKILL.md
-    ├── NS5B_workflow.svg
     ├── agents/
     │   └── openai.yaml
     └── scripts/
-        ├── run_ns5b_pipeline.sh
-        ├── load_pipeline_defaults.py
-        └── build_ns5b_*.py
+        ├── run_metadata_subtype_consensus_workflow.py
+        └── export_subtype_consensus_fasta.py
 ```
 
 ## Notes

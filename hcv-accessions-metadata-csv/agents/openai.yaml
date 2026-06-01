@@ -1,0 +1,4 @@
+interface:
+  display_name: "HCV Accessions Metadata CSV"
+  short_description: "Build accession metadata from FASTA and GenBank"
+  default_prompt: "Use $hcv-accessions-metadata-csv to build Accessions_metadata.csv from RefID FASTA files and a local GenBank archive, including NS3/NS5A/NS5B gene flags and source-feature metadata."

@@ -74,13 +74,13 @@ def parse_args() -> argparse.Namespace:
 
 
 def script_temp_dir() -> Path:
-    path = Path("temp") / Path(__file__).stem
+    path = repo_root() / "temp" / Path(__file__).stem
     path.mkdir(parents=True, exist_ok=True)
     return path
 
 
 def repo_root() -> Path:
-    return Path(__file__).resolve().parent.parent
+    return Path(__file__).resolve().parents[2]
 
 
 def resolve_config_path(value: str) -> Path:
