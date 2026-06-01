@@ -2,18 +2,27 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
-PYTHON_BIN="${PYTHON_BIN:-$REPO_ROOT/.venv/bin/python}"
+REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
+ENV_PATH="$REPO_ROOT/.env"
 CONFIG_PATH="$REPO_ROOT/pipeline.local.toml"
 
-if [[ -f "$CONFIG_PATH" ]]; then
-  eval "$(python3 "$REPO_ROOT/scripts/load_pipeline_defaults.py" ns5a "$REPO_ROOT")"
+if [[ -f "$ENV_PATH" ]]; then
+  set -a
+  # shellcheck disable=SC1090
+  source "$ENV_PATH"
+  set +a
 fi
+
+if [[ -f "$CONFIG_PATH" ]]; then
+  eval "$(python3 "$SCRIPT_DIR/load_pipeline_defaults.py" ns5a "$CONFIG_PATH" "$REPO_ROOT")"
+fi
+
+PYTHON_BIN="${PYTHON_BIN:-$REPO_ROOT/.venv/bin/python}"
 
 usage() {
   cat <<'EOF'
 Usage:
-  EXCEL_FILE=/path/to/HCV_BlastHits.xlsx FASTA_POOL=/path/to/FASTA [GENBANK_DIR=/path/to/genbank_seq_files] scripts/run_ns5a_pipeline.sh
+  EXCEL_FILE=/path/to/HCV_BlastHits.xlsx FASTA_POOL=/path/to/FASTA [GENBANK_DIR=/path/to/genbank_seq_files] hcv-ns5a-build-workflow/scripts/run_ns5a_pipeline.sh
 
 Optional environment variables:
   SHEET_NAME
@@ -24,7 +33,7 @@ Optional environment variables:
   PYTHON_BIN
   TEMP_ROOT
 
-Defaults can also be provided in pipeline.local.toml.
+Defaults can also be provided in .env and pipeline.local.toml at the repository root.
 EOF
 }
 
@@ -92,7 +101,7 @@ while IFS= read -r src; do
   cp "$src" "$STAGE_DIR/"
 done < "$MATCHED_TXT"
 
-"$PYTHON_BIN" "$REPO_ROOT/scripts/build_ns5a_gt_allstudies.py" \
+"$PYTHON_BIN" "$SCRIPT_DIR/build_ns5a_gt_allstudies.py" \
   --excel-file "$EXCEL_FILE" \
   --sheet "$SHEET_NAME" \
   --fasta-dir "$STAGE_DIR" \
@@ -105,12 +114,12 @@ done < "$MATCHED_TXT"
   > "$GT_ALLSTUDIES_JSON"
 
 if [[ -n "$GENBANK_DIR" ]]; then
-  "$PYTHON_BIN" "$REPO_ROOT/scripts/build_ns5a_sourcefeatures_csv.py" \
+  "$PYTHON_BIN" "$SCRIPT_DIR/build_ns5a_sourcefeatures_csv.py" \
     --matched-fasta-report "$MATCHED_TXT" \
     --genbank-dir "$GENBANK_DIR" \
     > "$SOURCEFEATURES_JSON"
 
-  "$PYTHON_BIN" "$REPO_ROOT/scripts/build_ns5a_sourcefeatures_grouped_csv.py" \
+  "$PYTHON_BIN" "$SCRIPT_DIR/build_ns5a_sourcefeatures_grouped_csv.py" \
     --gt-workbook "$OUTPUT_DIR/NS5A_GT_AllStudies.xlsx" \
     --summary-xlsx "$OUTPUT_DIR/NS5A_NumSeqs_Naive_1PP_CoversRAS_ByStudy.xlsx" \
     > "$SOURCEFEATURES_GROUPED_JSON"
@@ -118,14 +127,14 @@ else
   echo "GENBANK_DIR not provided; skipping NS5A source-feature extraction and grouped summary steps"
 fi
 
-"$PYTHON_BIN" "$REPO_ROOT/scripts/build_ns5a_subtype_allstudies_wseqs.py" \
+"$PYTHON_BIN" "$SCRIPT_DIR/build_ns5a_subtype_allstudies_wseqs.py" \
   --combined-workbook "$OUTPUT_DIR/NS5A_GT_AllStudies.xlsx" \
   --fasta-dir "$STAGE_DIR" \
   --subtype-json "$SUBTYPE_JSON" \
   --output-dir "$OUTPUT_DIR" \
   > "$SUBTYPE_ALLSTUDIES_JSON"
 
-"$PYTHON_BIN" "$REPO_ROOT/scripts/build_ns5a_subtype_with_gt_aa.py" \
+"$PYTHON_BIN" "$SCRIPT_DIR/build_ns5a_subtype_with_gt_aa.py" \
   --subtype-workbook "$OUTPUT_DIR/NS5A_Subtype_AllStudies_WSeqs.xlsx" \
   --fasta-dir "$STAGE_DIR" \
   --gt-aa-json "$GT_AA_JSON" \
@@ -134,18 +143,18 @@ fi
 
 AA_TMP_WORKBOOK="$("$PYTHON_BIN" -c 'import json,sys; print(json.load(open(sys.argv[1]))["output_workbook"])' "$SUBTYPE_WITH_GT_AA_JSON")"
 
-"$PYTHON_BIN" "$REPO_ROOT/scripts/build_ns5a_completeprofiles_tabspergt.py" \
+"$PYTHON_BIN" "$SCRIPT_DIR/build_ns5a_completeprofiles_tabspergt.py" \
   --input-workbook "$AA_TMP_WORKBOOK" \
   --output-dir "$OUTPUT_DIR" \
   > "$COMPLETEPROFILES_JSON"
 
-"$PYTHON_BIN" "$REPO_ROOT/scripts/build_ns5a_gt_ras_profiles.py" \
+"$PYTHON_BIN" "$SCRIPT_DIR/build_ns5a_gt_ras_profiles.py" \
   --gt-profile-workbook "$OUTPUT_DIR/NS5A_GT_CompleteProfiles_TabsPerGT.xlsx" \
   --gt-aa-json "$GT_AA_JSON" \
   --output-dir "$OUTPUT_DIR" \
   > "$GT_RAS_JSON"
 
-"$PYTHON_BIN" "$REPO_ROOT/scripts/build_ns5a_subtype_ras_profiles.py" \
+"$PYTHON_BIN" "$SCRIPT_DIR/build_ns5a_subtype_ras_profiles.py" \
   --subtype-profile-workbook "$OUTPUT_DIR/NS5A_Subtype_CompleteProfiles_TabsPerGT.xlsx" \
   --gt-aa-json "$GT_AA_JSON" \
   --output-dir "$OUTPUT_DIR" \

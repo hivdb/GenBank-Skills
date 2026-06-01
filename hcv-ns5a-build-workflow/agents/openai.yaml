@@ -1,0 +1,4 @@
+interface:
+  display_name: "HCV NS5A Build Workflow"
+  short_description: "Build NS5A genotype, subtype, and RAS reports"
+  default_prompt: "Use $hcv-ns5a-build-workflow to run or inspect the NS5A build scripts for genotype/subtype study workbooks, source-feature summaries, complete profiles, and RAS reports."

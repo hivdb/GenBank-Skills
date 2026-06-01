@@ -57,12 +57,12 @@ def coerce_value(key: str, value: object, repo_root: Path) -> str:
 
 
 def main() -> int:
-    if len(sys.argv) != 3:
-        raise SystemExit("Usage: load_pipeline_defaults.py <pipeline-name> <repo-root>")
+    if len(sys.argv) != 4:
+        raise SystemExit("Usage: load_pipeline_defaults.py <pipeline-name> <config-path> <repo-root>")
 
     pipeline_name = sys.argv[1]
-    repo_root = Path(sys.argv[2]).resolve()
-    config_path = repo_root / "pipeline.local.toml"
+    config_path = Path(sys.argv[2]).expanduser().resolve()
+    repo_root = Path(sys.argv[3]).resolve()
     if not config_path.is_file():
         return 0
 

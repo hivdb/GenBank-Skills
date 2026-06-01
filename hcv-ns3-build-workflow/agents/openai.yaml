@@ -1,0 +1,4 @@
+interface:
+  display_name: "HCV NS3 Build Workflow"
+  short_description: "Build NS3 genotype, subtype, and RAS reports"
+  default_prompt: "Use $hcv-ns3-build-workflow to run or inspect the NS3 build scripts for genotype/subtype study workbooks, source-feature summaries, complete profiles, and RAS reports."
