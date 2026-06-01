@@ -31,13 +31,13 @@ def parse_args() -> argparse.Namespace:
 
 
 def script_temp_dir() -> Path:
-    path = Path("temp") / Path(__file__).stem
+    path = Path("temp") / "hcv-ns5b-build-workflow" / Path(__file__).stem
     path.mkdir(parents=True, exist_ok=True)
     return path
 
 
 def sourcefeatures_temp_csv_path() -> Path:
-    return Path("temp") / "build_ns5b_sourcefeatures_csv" / "NS5B_SourceFeatures.csv"
+    return Path("temp") / "hcv-ns5b-build-workflow" / "build_ns5b_sourcefeatures_csv" / "NS5B_SourceFeatures.csv"
 
 
 def normalize_space(value: str) -> str:

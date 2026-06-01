@@ -5,7 +5,7 @@
 ### 1. Discover matched FASTA files for `NS3_May11`
 
 ```bash
-uv run python hcv-excel-refid-fasta-discovery/scripts/find_refid_fastas.py \
+uv run python hcv-ns3-build-workflow/scripts/find_refid_fastas.py \
   --excel-file /path/to/HCV_BlastHits_2026_04_29.xlsx \
   --sheet NS3_May11 \
   --fasta-dir /path/to/FASTA \
@@ -156,7 +156,7 @@ Important detail:
 
 ### NS3
 
-1. Run `hcv-excel-refid-fasta-discovery/scripts/find_refid_fastas.py` with:
+1. Run `hcv-ns3-build-workflow/scripts/find_refid_fastas.py` with:
    - `--sheet NS3_May11`
    - `--numpatients-column NumPts`
    - `--positive-column NS3Count`
@@ -183,8 +183,8 @@ Main outputs:
 
 Treat `NS5A_NTD` on the AA/profile side as `NS5A` for workflow purposes.
 
-1. Run `hcv-excel-refid-fasta-discovery/scripts/find_refid_fastas.py` with:
-   - `--sheet NS3_May11`
+1. Run `hcv-ns5a-build-workflow/scripts/find_refid_fastas.py` with:
+   - `--sheet NS5A_PtGT0_Check`
    - `--numpatients-column NumPts`
    - `--positive-column NS5ACount`
 2. Stage the matched FASTA files into a local temp directory.
@@ -208,8 +208,8 @@ Main outputs:
 
 ### NS5B
 
-1. Run `hcv-excel-refid-fasta-discovery/scripts/find_refid_fastas.py` with:
-   - `--sheet NS3_May11`
+1. Run `hcv-ns5b-build-workflow/scripts/find_refid_fastas.py` with:
+   - `--sheet NS5B_PtGT0_Check`
    - `--numpatients-column NumPts`
    - `--positive-column NS5BCount`
 2. Stage the matched FASTA files into a local temp directory.
@@ -231,9 +231,9 @@ Main outputs:
 - `NS5B_GT_Resistance_Profile_Summary.png`
 - `NS5B_Subtype_Resistance_Profile_Summary.xlsx`
 
-## What `hcv-excel-refid-fasta-discovery` Does
+## What RefID FASTA Discovery Does
 
-The `hcv-excel-refid-fasta-discovery` skill does not assign genotype or subtype.
+The RefID FASTA discovery step does not assign genotype or subtype. It is now bundled as the first script in each NS build workflow skill.
 
 Its job is to:
 
@@ -243,9 +243,11 @@ Its job is to:
 4. Collect the corresponding `RefID` values.
 5. Find matching FASTA files in a local directory by filename prefix, where the basename starts with the `RefID`.
 
-The script is:
+The scripts are:
 
-- `hcv-excel-refid-fasta-discovery/scripts/find_refid_fastas.py`
+- `hcv-ns3-build-workflow/scripts/find_refid_fastas.py`
+- `hcv-ns5a-build-workflow/scripts/find_refid_fastas.py`
+- `hcv-ns5b-build-workflow/scripts/find_refid_fastas.py`
 
 Important detail:
 
@@ -259,9 +261,9 @@ The implemented calling workflow in this repository is an `NS3`-specific downstr
 
 ### Step 1: Discover relevant FASTA files
 
-Use:
+Use the local script for the gene workflow being run, for example:
 
-- `hcv-excel-refid-fasta-discovery/scripts/find_refid_fastas.py`
+- `hcv-ns3-build-workflow/scripts/find_refid_fastas.py`
 
 Purpose:
 
@@ -355,7 +357,7 @@ Related notes:
 
 The concrete workflow I found is:
 
-1. `hcv-excel-refid-fasta-discovery` finds study FASTA files from filtered spreadsheet rows.
+1. The selected NS build workflow runs its bundled `scripts/find_refid_fastas.py` first to find study FASTA files from filtered spreadsheet rows.
 2. `hcv-ns3-build-workflow/scripts/build_ns3_gt_allstudies.py` assigns `NS3` genotype to each accession.
 3. `hcv-ns3-build-workflow/scripts/build_ns3_subtype_allstudies_wseqs.py` assigns `NS3` subtype to each accession using genotype-matched subtype references.
 
@@ -405,6 +407,6 @@ Associated workflow notes:
 
 ## Scope
 
-This repository does not implement genotype/subtype assignment as part of `hcv-excel-refid-fasta-discovery`.
+This repository does not implement genotype/subtype assignment in the RefID FASTA discovery step.
 
 The explicit classification workflow I found is specific to `NS3`, not a generic all-gene accession typing pipeline.

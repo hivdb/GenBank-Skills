@@ -44,8 +44,6 @@ KNOWN_QUASISPECIES_REFIDS = {
     "2225",
     "2324",
 }
-DEFAULT_SHEET = "Ref_summary_20260429 (2)"
-
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
@@ -55,7 +53,7 @@ def parse_args() -> argparse.Namespace:
         )
     )
     parser.add_argument("--excel-file", required=True, help="Path to the Excel workbook")
-    parser.add_argument("--sheet", default=DEFAULT_SHEET, help="Worksheet name to read")
+    parser.add_argument("--sheet", required=True, help="Worksheet name to read")
     parser.add_argument("--fasta-dir", required=True, help="Directory containing FASTA files")
     parser.add_argument("--output-dir", default="outputs", help="Base output directory")
     parser.add_argument("--refid-column", default="RefID", help="Column name holding RefID values")

@@ -31,7 +31,6 @@ Direct script execution is also supported. Use `uv run python ...` for Python en
 - `genbank-reference-alignment/`: Align accessions or query FASTA records against a reference FASTA and report best matched genes/ranges.
 - `genbank-accession-list-metadata/`: Build cohort metadata and person/quasispecies summaries from accessions or a local GenBank file.
 - `genbank-gene-split-alignment/`: Split GenBank nucleotide records by best matched reference gene and write per-gene aligned FASTA files.
-- `hcv-excel-refid-fasta-discovery/`: Find RefID FASTA files matching filtered HCV workbook rows.
 - `hcv-gene-genotype-subtype-ref-alignment/`: Prepare reusable HCV genotype/subtype reference alignments and FASTA files.
 - `hcv-accessions-metadata-csv/`: Build accession metadata CSVs from RefID FASTA files and local GenBank archives.
 - `hcv-ns3-build-workflow/`: Build NS3 genotype, subtype, source-feature, complete-profile, and RAS outputs.
@@ -61,7 +60,6 @@ Skill-specific scripts live inside each skill's `scripts/` directory.
 ├── genbank-reference-alignment/
 ├── genbank-single-accession-extractor/
 ├── hcv-accessions-metadata-csv/
-├── hcv-excel-refid-fasta-discovery/
 ├── hcv-gene-genotype-subtype-ref-alignment/
 ├── hcv-metadata-subtype-consensus-workflow/
 ├── hcv-ns3-build-workflow/

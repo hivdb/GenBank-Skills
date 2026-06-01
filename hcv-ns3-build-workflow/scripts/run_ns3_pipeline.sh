@@ -22,7 +22,7 @@ PYTHON_BIN="${PYTHON_BIN:-$REPO_ROOT/.venv/bin/python}"
 usage() {
   cat <<'EOF'
 Usage:
-  EXCEL_FILE=/path/to/HCV_BlastHits.xlsx FASTA_POOL=/path/to/FASTA [GENBANK_DIR=/path/to/genbank_seq_files] hcv-ns3-build-workflow/scripts/run_ns3_pipeline.sh
+  EXCEL_FILE=/path/to/HCV_BlastHits.xlsx SHEET_NAME=NS3_PtGT0_Check FASTA_POOL=/path/to/FASTA [GENBANK_DIR=/path/to/genbank_seq_files] hcv-ns3-build-workflow/scripts/run_ns3_pipeline.sh
 
 Optional environment variables:
   SHEET_NAME
@@ -40,32 +40,33 @@ EOF
 EXCEL_FILE="${EXCEL_FILE:-}"
 FASTA_POOL="${FASTA_POOL:-}"
 GENBANK_DIR="${GENBANK_DIR:-}"
-SHEET_NAME="${SHEET_NAME:-Ref_summary_20260429 (2)}"
+SHEET_NAME="${SHEET_NAME:-}"
 OUTPUT_DIR="${OUTPUT_DIR:-$REPO_ROOT/outputs}"
 REFERENCE_FASTA="${REFERENCE_FASTA:-$REPO_ROOT/HCV_GT_RefSeqs.fasta}"
 SUBTYPE_JSON="${SUBTYPE_JSON:-$REPO_ROOT/HCV_Subtype_Refs_By_Genome_NA.json}"
 GT_AA_JSON="${GT_AA_JSON:-$REPO_ROOT/HCV_GT_Refs_By_Gene_AA.json}"
-TEMP_ROOT="${TEMP_ROOT:-$REPO_ROOT/temp/$(basename "$0" .sh)}"
+SKILL_NAME="hcv-ns3-build-workflow"
+TEMP_ROOT="${TEMP_ROOT:-$REPO_ROOT/temp/$SKILL_NAME/$(basename "$0" .sh)}"
 
-if [[ -z "$EXCEL_FILE" || -z "$FASTA_POOL" ]]; then
+if [[ -z "$EXCEL_FILE" || -z "$FASTA_POOL" || -z "$SHEET_NAME" ]]; then
   usage
   exit 1
 fi
 
 MATCHED_TXT="$OUTPUT_DIR/NS3_matched_fasta_files.txt"
 STAGE_DIR="$TEMP_ROOT/NS3_stage"
-DISCOVERY_TMP="$REPO_ROOT/temp/find_refid_fastas"
+DISCOVERY_TMP="$TEMP_ROOT/find_refid_fastas"
 DISCOVERY_JSON="$DISCOVERY_TMP/discovery_ns3.json"
-GT_ALLSTUDIES_JSON="$REPO_ROOT/temp/build_ns3_gt_allstudies/last_run_summary.json"
-SOURCEFEATURES_JSON="$REPO_ROOT/temp/build_ns3_sourcefeatures_csv/last_run_summary.json"
-SOURCEFEATURES_GROUPED_JSON="$REPO_ROOT/temp/build_ns3_sourcefeatures_grouped_csv/last_run_summary.json"
-SUBTYPE_ALLSTUDIES_JSON="$REPO_ROOT/temp/build_ns3_subtype_allstudies_wseqs/last_run_summary.json"
-SUBTYPE_WITH_GT_AA_JSON="$REPO_ROOT/temp/build_ns3_subtype_with_gt_aa/last_run_summary.json"
-COMPLETEPROFILES_JSON="$REPO_ROOT/temp/build_ns3_completeprofiles_tabspergt/last_run_summary.json"
-GT_RAS_JSON="$REPO_ROOT/temp/build_ns3_gt_ras_profiles/last_run_summary.json"
-SUBTYPE_RAS_JSON="$REPO_ROOT/temp/build_ns3_subtype_ras_profiles/last_run_summary.json"
+SKILL_TEMP_ROOT="$REPO_ROOT/temp/$SKILL_NAME"
+GT_ALLSTUDIES_JSON="$SKILL_TEMP_ROOT/build_ns3_gt_allstudies/last_run_summary.json"
+SOURCEFEATURES_JSON="$SKILL_TEMP_ROOT/build_ns3_sourcefeatures_csv/last_run_summary.json"
+SOURCEFEATURES_GROUPED_JSON="$SKILL_TEMP_ROOT/build_ns3_sourcefeatures_grouped_csv/last_run_summary.json"
+SUBTYPE_ALLSTUDIES_JSON="$SKILL_TEMP_ROOT/build_ns3_subtype_allstudies_wseqs/last_run_summary.json"
+SUBTYPE_WITH_GT_AA_JSON="$SKILL_TEMP_ROOT/build_ns3_subtype_with_gt_aa/last_run_summary.json"
+COMPLETEPROFILES_JSON="$SKILL_TEMP_ROOT/build_ns3_completeprofiles_tabspergt/last_run_summary.json"
+GT_RAS_JSON="$SKILL_TEMP_ROOT/build_ns3_gt_ras_profiles/last_run_summary.json"
+SUBTYPE_RAS_JSON="$SKILL_TEMP_ROOT/build_ns3_subtype_ras_profiles/last_run_summary.json"
 mkdir -p "$TEMP_ROOT"
-mkdir -p "$DISCOVERY_TMP"
 mkdir -p "$(dirname "$GT_ALLSTUDIES_JSON")" "$(dirname "$SOURCEFEATURES_JSON")" "$(dirname "$SOURCEFEATURES_GROUPED_JSON")"
 mkdir -p "$(dirname "$SUBTYPE_ALLSTUDIES_JSON")" "$(dirname "$SUBTYPE_WITH_GT_AA_JSON")"
 mkdir -p "$(dirname "$COMPLETEPROFILES_JSON")" "$(dirname "$GT_RAS_JSON")" "$(dirname "$SUBTYPE_RAS_JSON")"
@@ -81,10 +82,12 @@ trap cleanup EXIT
 
 rm -rf "$STAGE_DIR"
 mkdir -p "$STAGE_DIR"
-rm -f "$REPO_ROOT/temp/build_ns3_sourcefeatures_csv/NS3_SourceFeatures.csv"
-rm -f "$REPO_ROOT/temp/build_ns3_sourcefeatures_grouped_csv/NS3_SourceFeatures_Grouped.csv"
+rm -rf "$DISCOVERY_TMP"
+mkdir -p "$DISCOVERY_TMP"
+rm -f "$SKILL_TEMP_ROOT/build_ns3_sourcefeatures_csv/NS3_SourceFeatures.csv"
+rm -f "$SKILL_TEMP_ROOT/build_ns3_sourcefeatures_grouped_csv/NS3_SourceFeatures_Grouped.csv"
 
-"$PYTHON_BIN" "$REPO_ROOT/hcv-excel-refid-fasta-discovery/scripts/find_refid_fastas.py" \
+"$PYTHON_BIN" "$SCRIPT_DIR/find_refid_fastas.py" \
   --excel-file "$EXCEL_FILE" \
   --sheet "$SHEET_NAME" \
   --fasta-dir "$FASTA_POOL" \

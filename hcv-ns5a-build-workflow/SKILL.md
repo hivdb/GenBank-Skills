@@ -1,11 +1,11 @@
 ---
 name: hcv-ns5a-build-workflow
-description: Use this skill when the user wants to run or inspect the HCV NS5A build scripts that create genotype/subtype study workbooks, source-feature summaries, complete profile workbooks, and genotype/subtype RAS profile reports from filtered study FASTA files.
+description: Use this skill when the user wants to run or inspect the HCV NS5A build scripts that discover RefID FASTA files, create genotype/subtype study workbooks, source-feature summaries, complete profile workbooks, and genotype/subtype RAS profile reports.
 ---
 
 # HCV NS5A Build Workflow
 
-Use this skill for the NS5A high-throughput build workflow after study FASTA files have been selected, usually with `$hcv-excel-refid-fasta-discovery`.
+Use this skill for the full NS5A high-throughput build workflow. The first step reads the configured Excel worksheet, discovers matching RefID FASTA files, and stages those files for downstream NS5A build steps.
 
 ## Workflow Chart
 
@@ -13,14 +13,15 @@ See `NS5A_workflow.svg` in this skill folder.
 
 ## Script Order
 
-1. `scripts/build_ns5a_gt_allstudies.py`
-2. `scripts/build_ns5a_sourcefeatures_csv.py` if GenBank source files are available
-3. `scripts/build_ns5a_sourcefeatures_grouped_csv.py` if source features were extracted
-4. `scripts/build_ns5a_subtype_allstudies_wseqs.py`
-5. `scripts/build_ns5a_subtype_with_gt_aa.py`
-6. `scripts/build_ns5a_completeprofiles_tabspergt.py`
-7. `scripts/build_ns5a_gt_ras_profiles.py`
-8. `scripts/build_ns5a_subtype_ras_profiles.py`
+1. `scripts/find_refid_fastas.py`
+2. `scripts/build_ns5a_gt_allstudies.py`
+3. `scripts/build_ns5a_sourcefeatures_csv.py` if GenBank source files are available
+4. `scripts/build_ns5a_sourcefeatures_grouped_csv.py` if source features were extracted
+5. `scripts/build_ns5a_subtype_allstudies_wseqs.py`
+6. `scripts/build_ns5a_subtype_with_gt_aa.py`
+7. `scripts/build_ns5a_completeprofiles_tabspergt.py`
+8. `scripts/build_ns5a_gt_ras_profiles.py`
+9. `scripts/build_ns5a_subtype_ras_profiles.py`
 
 Prefer the wrapper when running the full workflow:
 
@@ -38,11 +39,13 @@ Configuration stays in the repository base folder. The wrapper loads:
 
 Explicit environment variables provided by the caller take precedence over `pipeline.local.toml`.
 The TOML loader is bundled at `scripts/load_pipeline_defaults.py` and is called with the explicit root config path.
+Set `sheet_name` in the `[ns5a]` section of `pipeline.local.toml` to choose the input worksheet for discovery and genotype assignment.
+Temporary files and step summaries are written under `temp/hcv-ns5a-build-workflow/`.
 
 ## Inputs
 
-- Excel workbook and worksheet containing `RefID`, `RefName`, patient-count, and `NS5ACount` fields
-- directory of matched/staged NS5A study FASTA files
+- Excel workbook and configured worksheet containing `RefID`, `RefName`, patient-count, and `NS5ACount` fields
+- FASTA pool directory containing RefID-prefixed FASTA files
 - `HCV_GT_RefSeqs.fasta`
 - `HCV_Subtype_Refs_By_Genome_NA.json`
 - `HCV_GT_Refs_By_Gene_AA.json`
@@ -53,6 +56,7 @@ The TOML loader is bundled at `scripts/load_pipeline_defaults.py` and is called 
 The workflow writes NS5A outputs under `outputs/`, including:
 
 - `NS5A_GT_AllStudies.xlsx`
+- `NS5A_matched_fasta_files.txt`
 - `NS5A_SourceFeatures.csv` and grouped source-feature CSV/XLSX outputs when GenBank files are provided
 - `NS5A_Subtype_AllStudies_WSeqs.xlsx`
 - `NS5A_Subtype_With_GT_AA.xlsx`
@@ -66,5 +70,6 @@ The workflow writes NS5A outputs under `outputs/`, including:
 - Keep NS5A scripts together in this skill folder.
 - Use `scripts/run_ns5a_pipeline.sh` for complete runs unless the user asks for one specific build step.
 - Keep `.env` and `pipeline.local.toml` in the repository root; do not copy them into this skill folder.
+- Keep temporary outputs under `temp/hcv-ns5a-build-workflow/` so they do not mix with other skills.
 - Preserve the order above because later reports consume earlier workbooks.
 - If `GENBANK_DIR` is absent, skip only source-feature extraction and grouped source-feature steps.
