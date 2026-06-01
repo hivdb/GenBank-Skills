@@ -38,6 +38,45 @@ uv run python genbank-single-accession-extractor/scripts/fetch_genbank_accession
    - if the user supplies one or more local paper files, convert them to Markdown with a local parser and scan the sentences for accession mentions
    - accept repeated paper file paths or a directory of PDFs, DOCX files, and XLSX files
 
+## Direct Options
+
+Common flags:
+
+```bash
+--output-dir outputs
+--email you@example.org
+--tool genbank-single-accession-extractor
+--openai-model MODEL
+--disable-ai-lookup
+--fully-rerun
+```
+
+Cache behavior:
+
+- by default, reuse existing cached files for an accession when expected output JSON files already exist
+- if `record.gb` exists but final JSON outputs do not, reuse `record.gb` and recompute downstream parsing and lookup
+- `--fully-rerun` ignores existing files and fetches/recomputes everything
+
+AI lookup requires `OPENAI_API_KEY` and either `OPENAI_MODEL` or `--openai-model`. Without those settings, the script still performs GenBank, PubMed, and Crossref lookup and skips only the OpenAI fallback.
+
+## Reference Resolution
+
+For each GenBank `REFERENCE` block:
+
+1. Keep an existing `PUBMED` field when present.
+2. Search PubMed for unresolved references using the extracted title, authors, journal, accession, and parsed organism context.
+3. Query Crossref for DOI/citation context when PMID remains unresolved.
+4. Optionally use OpenAI web search for unresolved references when AI lookup is configured.
+
+For `Direct Submission` references, do not treat the GenBank accession page as a matched paper. Use the author and organism context conservatively, and leave PMID/DOI blank when a publication-level match is not supported.
+
+The final decision should be conservative:
+
+- supported PMIDs are written into `references.json`
+- supported DOI values from the AI fallback are attached as `openai_doi`
+- unsupported identifiers remain blank
+- lookup diagnostics are written to `reference_resolution.json`
+
 ## Output Contract
 
 The script writes an accession-specific output directory containing:
