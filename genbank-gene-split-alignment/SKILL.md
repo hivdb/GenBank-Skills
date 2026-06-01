@@ -7,7 +7,7 @@ description: Use this skill when the user provides a set of GenBank accessions o
 
 Use this skill when the task is to take many GenBank records, extract their nucleotide sequences, align each one against all genes in a reference FASTA, and save the projected nucleotide alignments into one FASTA file per matched gene.
 
-This skill is the natural follow-up after `$genbank-cohort-metadata`, but it should only start after the agent asks whether the user wants sequence alignment and the user confirms.
+This skill is the natural follow-up after `$genbank-accession-list-metadata`, but it should only start after the agent asks whether the user wants sequence alignment and the user confirms.
 
 ## Workflow
 
@@ -61,7 +61,7 @@ If accessions are used, it also stores:
 - Use accession as the FASTA header in the per-gene output files.
 - Use reference gene positions when projecting aligned query sequences.
 - Default to cached downloaded `.gb` files unless the user explicitly asks for a full rerun.
-- When invoked after `$genbank-cohort-metadata`, reuse the existing cohort directory if the same source `.gb` file or accession set is detected.
+- When invoked after `$genbank-accession-list-metadata`, reuse the existing cohort directory if the same source `.gb` file or accession set is detected.
 - After writing the aligned FASTA files, run FastTree with `-nt -gtr -boot 1000` for each gene that has at least two sequences.
 - If FastTree is not available on `PATH`, stop and ask the user to install it before continuing.
 - Generate a tree figure from the FastTree Newick output when rendering libraries are available.

@@ -48,7 +48,7 @@ def parse_args() -> argparse.Namespace:
     source.add_argument("--gb-file", help="Local GenBank file path")
     parser.add_argument("--output-dir", default="outputs", help="Base output directory")
     parser.add_argument("--email", default="", help="Optional contact email for NCBI E-utilities")
-    parser.add_argument("--tool", default="genbank-cohort-metadata", help="Tool name for NCBI E-utilities")
+    parser.add_argument("--tool", default="genbank-accession-list-metadata", help="Tool name for NCBI E-utilities")
     parser.add_argument("--fully-rerun", action="store_true", help="Ignore cached GenBank files and redownload")
     return parser.parse_args()
 
@@ -296,7 +296,7 @@ def load_records_from_gb_file(gb_file: Path) -> list[Any]:
 
 def write_report(path: Path, cohort_name: str, row_count: int, person_field: str | None, person_meta: dict[str, Any]) -> None:
     lines = [
-        "GenBank Cohort Metadata",
+        "GenBank Accession List Metadata",
         "",
         f"Cohort: {cohort_name}",
         f"Record count: {row_count}",

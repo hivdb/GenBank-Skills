@@ -1,9 +1,9 @@
 ---
-name: genbank-cohort-metadata
+name: genbank-accession-list-metadata
 description: Use this skill when the user provides a set of GenBank accessions or a local GenBank file and wants a cohort-level CSV with accession, submission date, and source-feature isolate metadata, plus person-id grouping, quasispecies clone detection, and person-count summary.
 ---
 
-# GenBank Cohort Metadata
+# GenBank Accession List Metadata
 
 Use this skill when the task is cohort-level GenBank metadata extraction rather than single-record review.
 
@@ -40,13 +40,13 @@ Use this skill when the task is cohort-level GenBank metadata extraction rather 
 For accessions:
 
 ```bash
-uv run python genbank-cohort-metadata/scripts/extract_cohort_metadata.py --accession ACC1 --accession ACC2
+uv run python genbank-accession-list-metadata/scripts/extract_cohort_metadata.py --accession ACC1 --accession ACC2
 ```
 
 For a local GenBank file:
 
 ```bash
-uv run python genbank-cohort-metadata/scripts/extract_cohort_metadata.py --gb-file /path/to/file.gb
+uv run python genbank-accession-list-metadata/scripts/extract_cohort_metadata.py --gb-file /path/to/file.gb
 ```
 
 ## Output Contract

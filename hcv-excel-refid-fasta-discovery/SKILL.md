@@ -1,9 +1,9 @@
 ---
-name: excel-refid-fasta-discovery
+name: hcv-excel-refid-fasta-discovery
 description: Use this skill when the user has an Excel workbook tab with a RefID column and a NumPatients column and wants the RefIDs where NumPatients is a number greater than 0, then wants matching FASTA files found in a local directory by RefID-prefixed filename.
 ---
 
-# Excel RefID FASTA Discovery
+# HCV Excel RefID FASTA Discovery
 
 Use this skill when the task is to read one worksheet from an Excel workbook, keep only rows where `NumPatients > 0`, collect the corresponding `RefID` values, and find FASTA files in a local directory whose filenames begin with those `RefID` values.
 
@@ -20,13 +20,13 @@ Use this step as the single place for study-level `RefID` exclusions, including 
 2. Run the bundled script:
 
 ```bash
-uv run python excel-refid-fasta-discovery/scripts/find_refid_fastas.py --excel-file /path/to/workbook.xlsx --sheet TabName --fasta-dir /path/to/fasta_dir
+uv run python hcv-excel-refid-fasta-discovery/scripts/find_refid_fastas.py --excel-file /path/to/workbook.xlsx --sheet TabName --fasta-dir /path/to/fasta_dir
 ```
 
 With the built-in quasispecies exclusions applied upstream:
 
 ```bash
-uv run python excel-refid-fasta-discovery/scripts/find_refid_fastas.py --excel-file /path/to/workbook.xlsx --sheet TabName --fasta-dir /path/to/fasta_dir --exclude-known-quasispecies-refids
+uv run python hcv-excel-refid-fasta-discovery/scripts/find_refid_fastas.py --excel-file /path/to/workbook.xlsx --sheet TabName --fasta-dir /path/to/fasta_dir --exclude-known-quasispecies-refids
 ```
 
 3. Review the outputs.

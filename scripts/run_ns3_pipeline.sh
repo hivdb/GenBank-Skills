@@ -75,7 +75,7 @@ mkdir -p "$STAGE_DIR"
 rm -f "$REPO_ROOT/temp/build_ns3_sourcefeatures_csv/NS3_SourceFeatures.csv"
 rm -f "$REPO_ROOT/temp/build_ns3_sourcefeatures_grouped_csv/NS3_SourceFeatures_Grouped.csv"
 
-"$PYTHON_BIN" "$REPO_ROOT/excel-refid-fasta-discovery/scripts/find_refid_fastas.py" \
+"$PYTHON_BIN" "$REPO_ROOT/hcv-excel-refid-fasta-discovery/scripts/find_refid_fastas.py" \
   --excel-file "$EXCEL_FILE" \
   --sheet "$SHEET_NAME" \
   --fasta-dir "$FASTA_POOL" \

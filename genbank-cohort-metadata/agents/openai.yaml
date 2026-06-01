@@ -1,4 +1,0 @@
-interface:
-  display_name: "GenBank Cohort Metadata"
-  short_description: "Extract cohort CSV and person summary"
-  default_prompt: "Use $genbank-cohort-metadata to process these accessions or this GenBank file into a cohort CSV and person-level summary."

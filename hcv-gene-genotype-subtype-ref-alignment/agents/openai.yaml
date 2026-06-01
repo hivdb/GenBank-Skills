@@ -1,0 +1,4 @@
+interface:
+  display_name: "HCV Gene Genotype Subtype Ref Alignment"
+  short_description: "Build HCV NS3/NS5A_NTD/NS5B subtype refs"
+  default_prompt: "Use $hcv-gene-genotype-subtype-ref-alignment to build reusable HCV NS3, NS5A_NTD, and NS5B genotype and subtype reference FASTA files from HCV_GT_RefSeqs.fasta plus the subtype genome JSON, using codon-aware alignment."

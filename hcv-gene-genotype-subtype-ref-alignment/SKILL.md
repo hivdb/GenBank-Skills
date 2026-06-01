@@ -1,9 +1,9 @@
 ---
-name: hcv-gene-subtype-reference-prep
+name: hcv-gene-genotype-subtype-ref-alignment
 description: Use this skill when the user wants a one-time preprocessing workflow that builds HCV NS3, NS5A_NTD, and NS5B reference FASTA files from genotype nucleotide references plus subtype genome nucleotide references, then extracts subtype nucleotide and amino-acid reference sequences for those genes with codon-aware alignment.
 ---
 
-# HCV Gene Subtype Reference Prep
+# HCV Gene Genotype Subtype Ref Alignment
 
 Use this skill when the task is to prepare reusable HCV genotype and subtype reference FASTA files for `NS3`, `NS5A_NTD`, and `NS5B`.
 
@@ -19,7 +19,7 @@ This is a one-time preprocessing step for later high-throughput genotype/subtype
 2. Run the bundled script:
 
 ```bash
-python3 hcv-gene-subtype-reference-prep/scripts/build_hcv_gene_subtype_refs.py --gt-gene-na-fasta /path/to/HCV_GT_RefSeqs.fasta --subtype-genome-na-json /path/to/HCV_Subtype_Refs_By_Genome_NA.json
+python3 hcv-gene-genotype-subtype-ref-alignment/scripts/build_hcv_gene_subtype_refs.py --gt-gene-na-fasta /path/to/HCV_GT_RefSeqs.fasta --subtype-genome-na-json /path/to/HCV_Subtype_Refs_By_Genome_NA.json
 ```
 
 3. Review the outputs.

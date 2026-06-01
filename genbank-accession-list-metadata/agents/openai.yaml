@@ -1,0 +1,4 @@
+interface:
+  display_name: "GenBank Accession List Metadata"
+  short_description: "Extract accession-list CSV and person summary"
+  default_prompt: "Use $genbank-accession-list-metadata to process these accessions or this GenBank file into a cohort CSV and person-level summary."

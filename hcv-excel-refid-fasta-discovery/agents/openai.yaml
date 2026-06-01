@@ -1,0 +1,4 @@
+interface:
+  display_name: "HCV Excel RefID FASTA Discovery"
+  short_description: "Find FASTA files from Excel RefIDs"
+  default_prompt: "Use $hcv-excel-refid-fasta-discovery to read this Excel tab, keep rows where NumPatients is greater than 0, collect the RefIDs, and list matching FASTA files in a local directory."

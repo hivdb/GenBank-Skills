@@ -5,7 +5,7 @@
 ### 1. Discover matched FASTA files for `NS3_May11`
 
 ```bash
-uv run python excel-refid-fasta-discovery/scripts/find_refid_fastas.py \
+uv run python hcv-excel-refid-fasta-discovery/scripts/find_refid_fastas.py \
   --excel-file /path/to/HCV_BlastHits_2026_04_29.xlsx \
   --sheet NS3_May11 \
   --fasta-dir /path/to/FASTA \
@@ -140,7 +140,7 @@ This script writes:
 ### 8. Build HCV gene and subtype reference sets
 
 ```bash
-./.venv/bin/python hcv-gene-subtype-reference-prep/scripts/build_hcv_gene_subtype_refs.py \
+./.venv/bin/python hcv-gene-genotype-subtype-ref-alignment/scripts/build_hcv_gene_subtype_refs.py \
   --gt-gene-na-fasta HCV_GT_RefSeqs.fasta \
   --subtype-genome-na-json HCV_Subtype_Refs_By_Genome_NA.json
 ```
@@ -156,7 +156,7 @@ Important detail:
 
 ### NS3
 
-1. Run `excel-refid-fasta-discovery/scripts/find_refid_fastas.py` with:
+1. Run `hcv-excel-refid-fasta-discovery/scripts/find_refid_fastas.py` with:
    - `--sheet NS3_May11`
    - `--numpatients-column NumPts`
    - `--positive-column NS3Count`
@@ -183,7 +183,7 @@ Main outputs:
 
 Treat `NS5A_NTD` on the AA/profile side as `NS5A` for workflow purposes.
 
-1. Run `excel-refid-fasta-discovery/scripts/find_refid_fastas.py` with:
+1. Run `hcv-excel-refid-fasta-discovery/scripts/find_refid_fastas.py` with:
    - `--sheet NS3_May11`
    - `--numpatients-column NumPts`
    - `--positive-column NS5ACount`
@@ -208,7 +208,7 @@ Main outputs:
 
 ### NS5B
 
-1. Run `excel-refid-fasta-discovery/scripts/find_refid_fastas.py` with:
+1. Run `hcv-excel-refid-fasta-discovery/scripts/find_refid_fastas.py` with:
    - `--sheet NS3_May11`
    - `--numpatients-column NumPts`
    - `--positive-column NS5BCount`
@@ -231,9 +231,9 @@ Main outputs:
 - `NS5B_GT_Resistance_Profile_Summary.png`
 - `NS5B_Subtype_Resistance_Profile_Summary.xlsx`
 
-## What `excel-refid-fasta-discovery` Does
+## What `hcv-excel-refid-fasta-discovery` Does
 
-The `excel-refid-fasta-discovery` skill does not assign genotype or subtype.
+The `hcv-excel-refid-fasta-discovery` skill does not assign genotype or subtype.
 
 Its job is to:
 
@@ -245,7 +245,7 @@ Its job is to:
 
 The script is:
 
-- `excel-refid-fasta-discovery/scripts/find_refid_fastas.py`
+- `hcv-excel-refid-fasta-discovery/scripts/find_refid_fastas.py`
 
 Important detail:
 
@@ -261,7 +261,7 @@ The implemented calling workflow in this repository is an `NS3`-specific downstr
 
 Use:
 
-- `excel-refid-fasta-discovery/scripts/find_refid_fastas.py`
+- `hcv-excel-refid-fasta-discovery/scripts/find_refid_fastas.py`
 
 Purpose:
 
@@ -355,7 +355,7 @@ Related notes:
 
 The concrete workflow I found is:
 
-1. `excel-refid-fasta-discovery` finds study FASTA files from filtered spreadsheet rows.
+1. `hcv-excel-refid-fasta-discovery` finds study FASTA files from filtered spreadsheet rows.
 2. `build_ns3_gt_allstudies.py` assigns `NS3` genotype to each accession.
 3. `build_ns3_subtype_allstudies_wseqs.py` assigns `NS3` subtype to each accession using genotype-matched subtype references.
 
@@ -405,6 +405,6 @@ Associated workflow notes:
 
 ## Scope
 
-This repository does not implement genotype/subtype assignment as part of `excel-refid-fasta-discovery`.
+This repository does not implement genotype/subtype assignment as part of `hcv-excel-refid-fasta-discovery`.
 
 The explicit classification workflow I found is specific to `NS3`, not a generic all-gene accession typing pipeline.

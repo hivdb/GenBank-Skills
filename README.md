@@ -49,16 +49,16 @@ Use $genbank-reference-alignment to align the sequences in /path/to/query.fasta 
 If you want to process a cohort of accessions or a GenBank file into a metadata CSV and person-level summary, ask the agent with a prompt like:
 
 ```text
-Use $genbank-cohort-metadata to process accessions PV289040, PV289041, and PV289042 into a cohort CSV, identify the patient/person field, count accessions per person, detect likely quasispecies clones, and report the number of persons.
+Use $genbank-accession-list-metadata to process accessions PV289040, PV289041, and PV289042 into a cohort CSV, identify the patient/person field, count accessions per person, detect likely quasispecies clones, and report the number of persons.
 ```
 
 For a local GenBank file:
 
 ```text
-Use $genbank-cohort-metadata to process /path/to/cohort.gb into a cohort CSV, identify the patient/person field, count accessions per person, detect likely quasispecies clones, and report the number of persons.
+Use $genbank-accession-list-metadata to process /path/to/cohort.gb into a cohort CSV, identify the patient/person field, count accessions per person, detect likely quasispecies clones, and report the number of persons.
 ```
 
-After `$genbank-cohort-metadata` finishes, the agent should ask whether you want to continue with `$genbank-gene-split-alignment` for sequence alignment. It should not start alignment automatically.
+After `$genbank-accession-list-metadata` finishes, the agent should ask whether you want to continue with `$genbank-gene-split-alignment` for sequence alignment. It should not start alignment automatically.
 
 If you want to extract nucleotide sequences from GenBank records, align them against a multi-gene reference FASTA, and save one aligned nucleotide FASTA per matched gene, ask the agent with a prompt like:
 
@@ -72,7 +72,7 @@ For a local GenBank file:
 Use $genbank-gene-split-alignment to process /path/to/cohort.gb against ./HCV.fasta, align all records to the reference genes, and save per-gene nucleotide FASTA files using accession headers.
 ```
 
-If you started with `$genbank-cohort-metadata`, the usual next step is:
+If you started with `$genbank-accession-list-metadata`, the usual next step is:
 
 ```text
 Yes, continue with $genbank-gene-split-alignment and align this cohort against ./HCV.fasta.
@@ -108,13 +108,13 @@ uv run python genbank-reference-alignment/scripts/align_accessions_to_reference.
 For cohort metadata from accessions:
 
 ```bash
-uv run python genbank-cohort-metadata/scripts/extract_cohort_metadata.py --accession PV289040 --accession PV289041 --accession PV289042
+uv run python genbank-accession-list-metadata/scripts/extract_cohort_metadata.py --accession PV289040 --accession PV289041 --accession PV289042
 ```
 
 For cohort metadata from a GenBank file:
 
 ```bash
-uv run python genbank-cohort-metadata/scripts/extract_cohort_metadata.py --gb-file /path/to/cohort.gb
+uv run python genbank-accession-list-metadata/scripts/extract_cohort_metadata.py --gb-file /path/to/cohort.gb
 ```
 
 For gene-split nucleotide alignment from accessions:
@@ -137,7 +137,7 @@ For cohort-style workflows, the output folder is job-based for safety rather tha
 outputs/cohort_records_20260507T123456Z_ab12cd34/
 ```
 
-When `$genbank-gene-split-alignment` is run after `$genbank-cohort-metadata` on the same source cohort, it reuses that cohort folder and writes:
+When `$genbank-gene-split-alignment` is run after `$genbank-accession-list-metadata` on the same source cohort, it reuses that cohort folder and writes:
 
 ```text
 outputs/cohort_records_20260507T123456Z_ab12cd34/
@@ -355,7 +355,7 @@ Cache behavior:
 
 - `genbank-single-accession-extractor/`: Download one GenBank accession, extract FASTA plus organism/source metadata, and enrich references with PMID lookup.
 - `genbank-reference-alignment/`: Align one or more GenBank accessions against all reference FASTA entries and report the best matched gene and aligned ranges.
-- `genbank-cohort-metadata/`: Process one cohort of accessions or a GenBank file into metadata CSV plus person/quasispecies summary.
+- `genbank-accession-list-metadata/`: Process one cohort of accessions or a GenBank file into metadata CSV plus person/quasispecies summary.
 - `genbank-gene-split-alignment/`: Extract nucleotide sequences from GenBank records, align to nucleotide or amino-acid reference genes, and save one codon-preserving nucleotide FASTA per matched gene.
 
 ## Repository Layout
@@ -370,7 +370,7 @@ Cache behavior:
 │   │   └── openai.yaml
 │   └── scripts/
 │       └── split_align_genbank_records.py
-├── genbank-cohort-metadata/
+├── genbank-accession-list-metadata/
 │   ├── SKILL.md
 │   ├── agents/
 │   │   └── openai.yaml
