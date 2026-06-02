@@ -19,6 +19,7 @@ from openpyxl.styles import Alignment, Font, PatternFill
 
 RESISTANCE_POSITIONS = [36, 41, 43, 54, 55, 56, 80, 122, 155, 156, 158, 166, 168, 170, 175]
 EXCLUDED_AAS = {"X", "*"}
+FREQUENCY_THRESHOLD_PERCENT = 1.0
 
 
 def parse_args() -> argparse.Namespace:
@@ -51,7 +52,13 @@ def make_job_dir(base_output_dir: Path, workbook_path: Path) -> Path:
 
 
 def format_freq(value: float) -> str:
-    return format(value, ".2g") if value >= 1.0 else format(value, ".1g")
+    if value <= 0:
+        return "0"
+    if value >= 10.0:
+        return f"{value:.0f}"
+    if value >= 1.0:
+        return f"{value:.1f}"
+    return format(value, ".1g")
 
 
 def load_consensus_by_gt(json_path: Path) -> dict[str, str]:
@@ -100,42 +107,35 @@ def load_gt_profile_rows(
 
 
 def build_grid(
-    consensus_by_gt: dict[str, str],
     profile_rows: dict[str, dict[int, list[tuple[str, float]]]],
     gt_counts: dict[str, int],
     position_coverage: dict[str, dict[int, int]],
 ) -> list[list[str]]:
-    grid: list[list[str]] = []
+    grid: list[list[str]] = [["", ""] + [f"P{pos}" for pos in RESISTANCE_POSITIONS]]
     for gt in sorted(profile_rows, key=int):
         pos_variants: dict[int, list[str]] = {}
         max_depth = 0
-        consensus_seq = consensus_by_gt[gt]
         for pos in RESISTANCE_POSITIONS:
             variants = [
                 f"{aa}-{format_freq(pct)}"
                 for aa, pct in sorted(profile_rows[gt].get(pos, []), key=lambda item: (-item[1], item[0]))
-                if aa not in EXCLUDED_AAS and pct > 0.1
+                if aa not in EXCLUDED_AAS and pct >= FREQUENCY_THRESHOLD_PERCENT
             ]
             pos_variants[pos] = variants
             max_depth = max(max_depth, len(variants))
 
-        grid.append([f"GT{gt}"] + [""] * len(RESISTANCE_POSITIONS))
-        grid.append(["Position"] + [str(pos) for pos in RESISTANCE_POSITIONS])
-        grid.append(["Reference"] + [consensus_seq[pos - 1] for pos in RESISTANCE_POSITIONS])
-        coverage_row = ["Coverage"]
-        total_sequences = gt_counts.get(gt, 0)
+        coverage_row = [f"GT{gt} ({gt_counts.get(gt, 0)})", "Coverage"]
         for pos in RESISTANCE_POSITIONS:
             covered = position_coverage.get(gt, {}).get(pos, 0)
-            pct = (100.0 * covered / total_sequences) if total_sequences else 0.0
-            coverage_row.append(f"{covered}/{total_sequences} ({pct:.1f}%)")
+            coverage_row.append(covered)
         grid.append(coverage_row)
         for depth in range(max_depth):
-            row = ["Consensus" if depth == 0 else f"Rank{depth + 1}"]
+            row = ["", "Consensus" if depth == 0 else ""]
             for pos in RESISTANCE_POSITIONS:
                 variants = pos_variants[pos]
                 row.append(variants[depth] if depth < len(variants) else "")
             grid.append(row)
-        grid.append([""] + [""] * len(RESISTANCE_POSITIONS))
+        grid.append([""] + [""] * (len(RESISTANCE_POSITIONS) + 1))
     return grid
 
 
@@ -145,33 +145,25 @@ def write_excel(path: Path, grid: list[list[str]]) -> None:
     ws.title = "GT_Resistance_Profile"
     gt_fill = PatternFill(fill_type="solid", fgColor="D9EAF7")
     header_fill = PatternFill(fill_type="solid", fgColor="F2F2F2")
-    consensus_fill = PatternFill(fill_type="solid", fgColor="E2F0D9")
     bold = Font(bold=True)
 
     for row_idx, row in enumerate(grid, start=1):
         ws.append(row)
         first = row[0]
-        if first.startswith("GT"):
+        second = row[1] if len(row) > 1 else ""
+        if isinstance(first, str) and first.startswith("GT"):
             for cell in ws[row_idx]:
                 cell.fill = gt_fill
                 cell.font = bold
-        elif first == "Position":
-            for cell in ws[row_idx]:
-                cell.fill = header_fill
-                cell.font = bold
-        elif first == "Reference":
-            for cell in ws[row_idx]:
-                cell.fill = consensus_fill
-                cell.font = bold
-        elif first == "Coverage":
+        elif second == "Coverage":
             for cell in ws[row_idx]:
                 cell.fill = header_fill
                 cell.font = bold
         for cell in ws[row_idx]:
             cell.alignment = Alignment(horizontal="center")
 
-    for col in range(1, len(RESISTANCE_POSITIONS) + 2):
-        ws.column_dimensions[chr(64 + col)].width = 12 if col > 1 else 14
+    for col in range(1, len(RESISTANCE_POSITIONS) + 3):
+        ws.column_dimensions[chr(64 + col)].width = 12 if col > 2 else 14
     wb.save(path)
 
 
@@ -219,9 +211,8 @@ def main() -> int:
     output_dir = Path(args.output_dir)
     script_temp_dir()
 
-    consensus_by_gt = load_consensus_by_gt(gt_aa_json)
     profile_rows, gt_counts, position_coverage = load_gt_profile_rows(gt_profile_workbook)
-    grid = build_grid(consensus_by_gt, profile_rows, gt_counts, position_coverage)
+    grid = build_grid(profile_rows, gt_counts, position_coverage)
 
     output_dir.mkdir(parents=True, exist_ok=True)
     excel_path = output_dir / "NS3_GT_RAS_Profiles.xlsx"
@@ -235,7 +226,7 @@ def main() -> int:
         # Historical PNG output kept for reference only.
         # "png": str(png_path.resolve()),
         "positions": RESISTANCE_POSITIONS,
-        "frequency_threshold_percent": 0.1,
+        "frequency_threshold_percent": FREQUENCY_THRESHOLD_PERCENT,
     }
     print(json.dumps(summary, indent=2))
     return 0

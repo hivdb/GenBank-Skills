@@ -13,9 +13,8 @@ from typing import Any
 from openpyxl import Workbook, load_workbook
 
 
-AA_ORDER = list("ACDEFGHIKLMNPQRSTVWY") + ["X", "*"]
+AA_ORDER = list("ACDEFGHIKLMNPQRSTVWY") + ["*"]
 TARGET_GENE = "NS5A"
-SUBTYPE_MIN_PCT = 10.0
 
 
 def parse_args() -> argparse.Namespace:
@@ -80,6 +79,9 @@ def build_position_counts(rows: list[dict[str, Any]]) -> tuple[dict[int, int], d
         start = row["StartAAPosition"]
         aa_sequence = row["AASequence"]
         for offset, aa in enumerate(aa_sequence):
+            aa = aa.upper()
+            if aa == "X":
+                continue
             pos = start + offset
             included_counts[pos] += 1
             aa_counts[pos][aa] += 1
@@ -144,8 +146,6 @@ def write_subtype_workbook(path: Path, rows_by_gt_subtype: dict[str, dict[str, l
                     if count == 0:
                         continue
                     pct = 100.0 * count / denom
-                    if pct < SUBTYPE_MIN_PCT:
-                        continue
                     ws.append([subtype, pos, denom, aa, count, count, pct, pct])
     wb.save(path)
     return summary
@@ -179,7 +179,6 @@ def main() -> int:
         "rows_with_aa": len(rows),
         "gt_workbook": str(gt_path.resolve()),
         "subtype_workbook": str(subtype_path.resolve()),
-        "subtype_min_percent": SUBTYPE_MIN_PCT,
         "gt_sequence_counts": gt_summary,
         "subtype_group_count": sum(len(v) for v in rows_by_gt_subtype.values()),
         "note": "CountWithAA and CountWithAAAlone are identical because current AA sequences contain single-letter calls, not explicit mixtures.",

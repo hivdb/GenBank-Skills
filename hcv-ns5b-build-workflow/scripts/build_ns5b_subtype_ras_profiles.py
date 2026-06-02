@@ -19,6 +19,7 @@ from openpyxl.utils import get_column_letter
 DEFAULT_RESISTANCE_POSITIONS = [150, 159, 206, 282, 316, 320, 321]
 EXCLUDED_AAS = {"X", "*"}
 TARGET_GENE = "NS5B"
+FREQUENCY_THRESHOLD_PERCENT = 1.0
 
 
 def parse_args() -> argparse.Namespace:
@@ -70,12 +71,11 @@ def make_job_dir(base_output_dir: Path, workbook_path: Path) -> Path:
 def format_freq(value: float) -> str:
     if value <= 0:
         return "0"
-    sig = 2 if value >= 1.0 else 1
-    decimals = max(0, sig - 1 - math.floor(math.log10(value)))
-    text = f"{round(value, decimals):.{decimals}f}"
-    if "." in text:
-        text = text.rstrip("0").rstrip(".")
-    return text
+    if value >= 10.0:
+        return f"{value:.0f}"
+    if value >= 1.0:
+        return f"{value:.1f}"
+    return format(value, ".1g")
 
 
 def load_consensus_by_gt(json_path: Path) -> dict[str, str]:
@@ -123,48 +123,41 @@ def load_subtype_profile_rows(
 
 
 def build_grid(
-    consensus_by_gt: dict[str, str],
     profile_rows: dict[str, dict[str, dict[int, list[tuple[str, float]]]]],
     subtype_counts: dict[str, dict[str, int]],
     position_coverage: dict[str, dict[str, dict[int, int]]],
     positions: list[int],
 ) -> list[list[str]]:
-    grid: list[list[str]] = []
+    grid: list[list[str]] = [["", ""] + [f"P{pos}" for pos in positions]]
     ordered_subtypes: list[tuple[str, str]] = []
     for gt in sorted(subtype_counts, key=int):
         for subtype in sorted(subtype_counts[gt]):
             ordered_subtypes.append((gt, subtype))
 
     for gt, subtype in ordered_subtypes:
-        consensus_seq = consensus_by_gt[gt]
         pos_variants: dict[int, list[str]] = {}
         max_depth = 0
         for pos in positions:
             variants = [
                 f"{aa}-{format_freq(pct)}"
                 for aa, pct in sorted(profile_rows[gt][subtype].get(pos, []), key=lambda item: (-item[1], item[0]))
-                if aa not in EXCLUDED_AAS and pct > 0.1
+                if aa not in EXCLUDED_AAS and pct >= FREQUENCY_THRESHOLD_PERCENT
             ]
             pos_variants[pos] = variants
             max_depth = max(max_depth, len(variants))
 
-        grid.append([f"GT{gt}_{subtype} ({subtype_counts[gt][subtype]})"] + [""] * len(positions))
-        grid.append(["Position"] + [str(pos) for pos in positions])
-        grid.append(["Reference"] + [consensus_seq[pos - 1] for pos in positions])
-        coverage_row = ["Coverage"]
-        total_sequences = subtype_counts[gt][subtype]
+        coverage_row = [f"GT{gt}_{subtype} ({subtype_counts[gt][subtype]})", "Coverage"]
         for pos in positions:
             covered = position_coverage[gt][subtype].get(pos, 0)
-            pct = (100.0 * covered / total_sequences) if total_sequences else 0.0
-            coverage_row.append(f"{covered}/{total_sequences} ({pct:.1f}%)")
+            coverage_row.append(covered)
         grid.append(coverage_row)
         for depth in range(max_depth):
-            row = ["Consensus" if depth == 0 else f"Rank{depth + 1}"]
+            row = ["", "Consensus" if depth == 0 else ""]
             for pos in positions:
                 variants = pos_variants[pos]
                 row.append(variants[depth] if depth < len(variants) else "")
             grid.append(row)
-        grid.append([""] + [""] * len(positions))
+        grid.append([""] + [""] * (len(positions) + 1))
     return grid
 
 
@@ -174,29 +167,25 @@ def write_excel(path: Path, grid: list[list[str]], positions: list[int]) -> None
     ws.title = "Subtype_Resistance_Profile"
     block_fill = PatternFill(fill_type="solid", fgColor="D9EAF7")
     header_fill = PatternFill(fill_type="solid", fgColor="F2F2F2")
-    consensus_fill = PatternFill(fill_type="solid", fgColor="E2F0D9")
     bold = Font(bold=True)
 
     for row_idx, row in enumerate(grid, start=1):
         ws.append(row)
         first = row[0]
-        if first.startswith("GT"):
+        second = row[1] if len(row) > 1 else ""
+        if isinstance(first, str) and first.startswith("GT"):
             for cell in ws[row_idx]:
                 cell.fill = block_fill
                 cell.font = bold
-        elif first == "Position":
+        elif second == "Coverage":
             for cell in ws[row_idx]:
                 cell.fill = header_fill
-                cell.font = bold
-        elif first == "Reference":
-            for cell in ws[row_idx]:
-                cell.fill = consensus_fill
                 cell.font = bold
         for cell in ws[row_idx]:
             cell.alignment = Alignment(horizontal="center")
 
-    for col in range(1, len(positions) + 2):
-        ws.column_dimensions[get_column_letter(col)].width = 12 if col > 1 else 18
+    for col in range(1, len(positions) + 3):
+        ws.column_dimensions[get_column_letter(col)].width = 12 if col > 2 else 18
     wb.save(path)
 
 
@@ -208,9 +197,8 @@ def main() -> int:
     positions = parse_positions(args.positions)
     script_temp_dir()
 
-    consensus_by_gt = load_consensus_by_gt(gt_aa_json)
     profile_rows, subtype_counts, position_coverage = load_subtype_profile_rows(subtype_profile_workbook, positions)
-    grid = build_grid(consensus_by_gt, profile_rows, subtype_counts, position_coverage, positions)
+    grid = build_grid(profile_rows, subtype_counts, position_coverage, positions)
 
     output_dir.mkdir(parents=True, exist_ok=True)
     excel_path = output_dir / "NS5B_Subtype_RAS_Profiles.xlsx"
@@ -220,7 +208,7 @@ def main() -> int:
         "excel": str(excel_path.resolve()),
         "gene": TARGET_GENE,
         "positions": positions,
-        "frequency_threshold_percent": 0.1,
+        "frequency_threshold_percent": FREQUENCY_THRESHOLD_PERCENT,
     }
     print(json.dumps(summary, indent=2))
     return 0
