@@ -6,11 +6,10 @@ import argparse
 import json
 import re
 import shutil
-from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-from openpyxl import load_workbook
+from openpyxl import Workbook, load_workbook
 
 
 DEFAULT_FASTA_EXTENSIONS = {
@@ -48,7 +47,7 @@ KNOWN_QUASISPECIES_REFIDS = {
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description=(
-            "Read one Excel worksheet, keep rows where NumPatients > 0, "
+            "Read one Excel worksheet, exclude rows where the patient-count column is 'Exclude', "
             "collect RefIDs, and find matching FASTA files by filename prefix."
         )
     )
@@ -115,6 +114,10 @@ def parse_positive_number(value: Any) -> float | None:
         return None
 
 
+def is_excluded_patient_value(value: Any) -> bool:
+    return str(value).strip().casefold() == "exclude"
+
+
 def load_matching_refids(
     excel_file: Path,
     sheet_name: str,
@@ -122,7 +125,7 @@ def load_matching_refids(
     numpatients_column: str,
     positive_columns: list[str],
     excluded_refids: set[str],
-) -> tuple[list[str], list[dict[str, Any]], dict[str, Any]]:
+) -> tuple[list[str], list[dict[str, Any]], list[str], list[tuple[Any, ...]], dict[str, Any]]:
     workbook = load_workbook(excel_file, read_only=True, data_only=True)
     if sheet_name not in workbook.sheetnames:
         raise RuntimeError(f"Worksheet '{sheet_name}' was not found in {excel_file}")
@@ -149,20 +152,19 @@ def load_matching_refids(
 
     matching_refids: list[str] = []
     matching_rows: list[dict[str, Any]] = []
+    result_rows: list[tuple[Any, ...]] = []
     scanned_rows = 0
     qualifying_rows = 0
-    skipped_non_numeric = 0
+    skipped_excluded_numpatients = 0
     skipped_missing_refid = 0
     skipped_additional_positive_filter = 0
     skipped_excluded_refid = 0
 
     for row in rows[1:]:
         scanned_rows += 1
-        number = parse_positive_number(row[numpatients_idx] if numpatients_idx < len(row) else None)
-        if number is None:
-            skipped_non_numeric += 1
-            continue
-        if number <= 0:
+        numpatients_value = row[numpatients_idx] if numpatients_idx < len(row) else None
+        if is_excluded_patient_value(numpatients_value):
+            skipped_excluded_numpatients += 1
             continue
 
         failed_positive_filter = False
@@ -188,10 +190,11 @@ def load_matching_refids(
 
         qualifying_rows += 1
         matching_refids.append(refid)
+        result_rows.append(row)
         matching_rows.append(
             {
                 "refid": refid,
-                numpatients_column: number,
+                numpatients_column: "" if numpatients_value is None else str(numpatients_value).strip(),
                 **positive_values,
             }
         )
@@ -201,12 +204,12 @@ def load_matching_refids(
         "headers": headers,
         "rows_scanned": scanned_rows,
         "qualifying_rows": qualifying_rows,
-        "skipped_non_numeric_numpatients": skipped_non_numeric,
+        "skipped_excluded_numpatients": skipped_excluded_numpatients,
         "skipped_missing_refid": skipped_missing_refid,
         "skipped_additional_positive_filter": skipped_additional_positive_filter,
         "skipped_excluded_refid": skipped_excluded_refid,
     }
-    return matching_refids, matching_rows, diagnostics
+    return matching_refids, matching_rows, headers, result_rows, diagnostics
 
 
 def looks_like_fasta(path: Path) -> bool:
@@ -244,6 +247,17 @@ def write_json(path: Path, payload: Any) -> None:
     path.write_text(json.dumps(payload, indent=2, ensure_ascii=True) + "\n", encoding="utf-8")
 
 
+def write_result_sheet(path: Path, headers: list[str], rows: list[tuple[Any, ...]]) -> None:
+    workbook = Workbook()
+    sheet = workbook.active
+    sheet.title = "FilteredRows"
+    sheet.append(headers)
+    column_count = len(headers)
+    for row in rows:
+        sheet.append(list(row[:column_count]) + [None] * max(0, column_count - len(row)))
+    workbook.save(path)
+
+
 def main() -> int:
     args = parse_args()
     excel_file = Path(args.excel_file).expanduser()
@@ -262,7 +276,7 @@ def main() -> int:
     base_output_dir.mkdir(parents=True, exist_ok=True)
     job_dir = make_job_dir(base_output_dir, excel_file, args.sheet)
 
-    refids, matching_rows, diagnostics = load_matching_refids(
+    refids, matching_rows, result_headers, result_rows, diagnostics = load_matching_refids(
         excel_file,
         args.sheet,
         args.refid_column,
@@ -277,6 +291,8 @@ def main() -> int:
 
     write_lines(job_dir / "matching_refids.txt", refids)
     write_lines(job_dir / "matched_fasta_files.txt", matched_files)
+    result_sheet_path = job_dir / "filtered_rows.xlsx"
+    write_result_sheet(result_sheet_path, result_headers, result_rows)
 
     summary = {
         "excel_file": str(excel_file.resolve()),
@@ -293,6 +309,7 @@ def main() -> int:
         "unmatched_refids": unmatched_refids,
         "files_by_refid": files_by_refid,
         "diagnostics": diagnostics,
+        "filtered_rows_workbook": str(result_sheet_path.resolve()),
         "output_dir": str(job_dir.resolve()),
     }
     write_json(job_dir / "summary.json", summary)
