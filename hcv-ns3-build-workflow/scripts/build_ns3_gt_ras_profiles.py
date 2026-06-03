@@ -11,6 +11,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from openpyxl import Workbook, load_workbook
+from openpyxl.cell.rich_text import CellRichText, TextBlock
+from openpyxl.cell.text import InlineFont
 from openpyxl.styles import Alignment, Font, PatternFill
 
 # Historical PNG output kept for reference only.
@@ -20,6 +22,8 @@ from openpyxl.styles import Alignment, Font, PatternFill
 RESISTANCE_POSITIONS = [36, 41, 43, 54, 55, 56, 80, 122, 155, 156, 158, 166, 168, 170, 175]
 EXCLUDED_AAS = {"X", "*"}
 FREQUENCY_THRESHOLD_PERCENT = 1.0
+type VariantCell = list[tuple[str, str]]
+type GridCell = str | int | VariantCell
 
 
 def parse_args() -> argparse.Namespace:
@@ -59,6 +63,22 @@ def format_freq(value: float) -> str:
     if value >= 1.0:
         return f"{value:.1f}"
     return format(value, ".1g")
+
+
+def variants_to_rich_text(variants: VariantCell) -> CellRichText | str:
+    if not variants:
+        return ""
+    parts: list[str | TextBlock] = []
+    for aa, pct in variants:
+        parts.append(aa)
+        parts.append(TextBlock(InlineFont(vertAlign="superscript"), pct))
+    return CellRichText(*parts)
+
+
+def format_coverage_range(values: list[int]) -> str:
+    if not values:
+        return "0-0"
+    return f"{min(values)}-{max(values)}"
 
 
 def load_consensus_by_gt(json_path: Path) -> dict[str, str]:
@@ -110,60 +130,49 @@ def build_grid(
     profile_rows: dict[str, dict[int, list[tuple[str, float]]]],
     gt_counts: dict[str, int],
     position_coverage: dict[str, dict[int, int]],
-) -> list[list[str]]:
-    grid: list[list[str]] = [["", ""] + [f"P{pos}" for pos in RESISTANCE_POSITIONS]]
+) -> list[list[GridCell]]:
+    grid: list[list[GridCell]] = [[""] + [f"P{pos}" for pos in RESISTANCE_POSITIONS]]
     for gt in sorted(profile_rows, key=int):
-        pos_variants: dict[int, list[str]] = {}
-        max_depth = 0
+        pos_variants: dict[int, VariantCell] = {}
         for pos in RESISTANCE_POSITIONS:
             variants = [
-                f"{aa}-{format_freq(pct)}"
+                (aa, format_freq(pct))
                 for aa, pct in sorted(profile_rows[gt].get(pos, []), key=lambda item: (-item[1], item[0]))
                 if aa not in EXCLUDED_AAS and pct >= FREQUENCY_THRESHOLD_PERCENT
             ]
             pos_variants[pos] = variants
-            max_depth = max(max_depth, len(variants))
 
-        coverage_row = [f"GT{gt} ({gt_counts.get(gt, 0)})", "Coverage"]
+        coverage_values = [position_coverage.get(gt, {}).get(pos, 0) for pos in RESISTANCE_POSITIONS]
+        row: list[GridCell] = [
+            f"GT{gt} ({gt_counts.get(gt, 0)}, {format_coverage_range(coverage_values)})",
+        ]
         for pos in RESISTANCE_POSITIONS:
-            covered = position_coverage.get(gt, {}).get(pos, 0)
-            coverage_row.append(covered)
-        grid.append(coverage_row)
-        for depth in range(max_depth):
-            row = ["", "Consensus" if depth == 0 else ""]
-            for pos in RESISTANCE_POSITIONS:
-                variants = pos_variants[pos]
-                row.append(variants[depth] if depth < len(variants) else "")
-            grid.append(row)
-        grid.append([""] + [""] * (len(RESISTANCE_POSITIONS) + 1))
+            row.append(pos_variants[pos])
+        grid.append(row)
     return grid
 
 
-def write_excel(path: Path, grid: list[list[str]]) -> None:
+def write_excel(path: Path, grid: list[list[GridCell]]) -> None:
     wb = Workbook()
     ws = wb.active
     ws.title = "GT_Resistance_Profile"
     gt_fill = PatternFill(fill_type="solid", fgColor="D9EAF7")
-    header_fill = PatternFill(fill_type="solid", fgColor="F2F2F2")
     bold = Font(bold=True)
 
     for row_idx, row in enumerate(grid, start=1):
-        ws.append(row)
+        for col_idx, value in enumerate(row, start=1):
+            cell = ws.cell(row=row_idx, column=col_idx)
+            cell.value = variants_to_rich_text(value) if isinstance(value, list) else value
         first = row[0]
-        second = row[1] if len(row) > 1 else ""
         if isinstance(first, str) and first.startswith("GT"):
             for cell in ws[row_idx]:
                 cell.fill = gt_fill
                 cell.font = bold
-        elif second == "Coverage":
-            for cell in ws[row_idx]:
-                cell.fill = header_fill
-                cell.font = bold
         for cell in ws[row_idx]:
             cell.alignment = Alignment(horizontal="center")
 
-    for col in range(1, len(RESISTANCE_POSITIONS) + 3):
-        ws.column_dimensions[chr(64 + col)].width = 12 if col > 2 else 14
+    for col in range(1, len(RESISTANCE_POSITIONS) + 2):
+        ws.column_dimensions[chr(64 + col)].width = 12 if col > 1 else 14
     wb.save(path)
 
 
