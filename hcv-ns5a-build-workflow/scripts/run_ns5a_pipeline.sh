@@ -72,7 +72,8 @@ REFID_METADATA_DIR="$TEMP_ROOT/refid_metadata"
 mkdir -p "$TEMP_ROOT"
 mkdir -p "$(dirname "$GT_ALLSTUDIES_JSON")" "$(dirname "$SOURCEFEATURES_JSON")" "$(dirname "$SOURCEFEATURES_GROUPED_JSON")"
 mkdir -p "$(dirname "$SUBTYPE_ALLSTUDIES_JSON")" "$(dirname "$SUBTYPE_WITH_GT_AA_JSON")"
-mkdir -p "$(dirname "$COMPLETEPROFILES_JSON")" "$(dirname "$GT_RAS_JSON")" "$(dirname "$SUBTYPE_RAS_JSON")"
+mkdir -p "$(dirname "$COMPLETEPROFILES_JSON")"
+mkdir -p "$(dirname "$GT_RAS_JSON")" "$(dirname "$SUBTYPE_RAS_JSON")"
 
 mkdir -p "$OUTPUT_DIR"
 
@@ -167,6 +168,12 @@ AA_TMP_WORKBOOK="$("$PYTHON_BIN" -c 'import json,sys; print(json.load(open(sys.a
   --input-workbook "$AA_TMP_WORKBOOK" \
   --output-dir "$OUTPUT_DIR" \
   > "$COMPLETEPROFILES_JSON"
+
+"$PYTHON_BIN" "$SCRIPT_DIR/export_ns5a_consensus_fasta.py" \
+  --gt-profile-workbook "$OUTPUT_DIR/NS5A_GT_CompleteProfiles_TabsPerGT.xlsx" \
+  --subtype-profile-workbook "$OUTPUT_DIR/NS5A_Subtype_CompleteProfiles_TabsPerGT.xlsx" \
+  --output-dir "$OUTPUT_DIR" \
+  > /dev/null
 
 "$PYTHON_BIN" "$SCRIPT_DIR/build_ns5a_gt_ras_profiles.py" \
   --gt-profile-workbook "$OUTPUT_DIR/NS5A_GT_CompleteProfiles_TabsPerGT.xlsx" \

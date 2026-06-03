@@ -44,7 +44,6 @@ Direct script execution is also supported. Use `uv run python ...` for Python en
 - `scripts/check_subtype_ref_edges.py`: Check subtype amino-acid reference edges against genotype amino-acid reference edges.
 - `scripts/collect_genbank_by_fasta.py`: Collect local GenBank records matching accessions found in each FASTA file.
 - `scripts/detect_accession_hcv_genes.py`: Detect NS3, NS5A, and NS5B presence for FASTA accessions by BLAST against `HCV.fasta`.
-- `scripts/export_gt_consensus_fasta.py`: Export genotype consensus amino-acid FASTA records from a GT complete-profile workbook.
 - `scripts/export_ras_consensus_mutations_csv.py`: Export detailed and aggregated RAS consensus mutation CSVs from GT and subtype profile workbooks.
 - `scripts/extract_gt_refs_aa_to_fasta.py`: Convert genotype amino-acid references from JSON into FASTA.
 - `scripts/extract_subtype_consensus_boundaries.py`: Extract first and last amino acids from subtype consensus FASTA files into a CSV.

@@ -24,8 +24,9 @@ See `NS3_workflow.svg` in this skill folder.
 9. `scripts/build_ns3_subtype_allstudies_wseqs.py`
 10. `scripts/build_ns3_subtype_with_gt_aa.py`
 11. `scripts/build_ns3_completeprofiles_tabspergt.py`
-12. `scripts/build_ns3_gt_ras_profiles.py`
-13. `scripts/build_ns3_subtype_ras_profiles.py`
+12. `scripts/export_ns3_consensus_fasta.py`
+13. `scripts/build_ns3_gt_ras_profiles.py`
+14. `scripts/build_ns3_subtype_ras_profiles.py`
 
 Prefer the wrapper when running the full workflow:
 
@@ -79,6 +80,8 @@ The workflow writes NS3 outputs under `outputs/`, including:
 - `NS3_Subtype_With_GT_AA.xlsx`
 - `NS3_GT_CompleteProfiles_TabsPerGT.xlsx`
 - `NS3_Subtype_CompleteProfiles_TabsPerGT.xlsx`
+- `NS3_GT_Consensus.fasta`
+- `NS3_Subtype_Consensus.fasta`
 - `NS3_GT_RAS_Profiles.xlsx`
 - `NS3_Subtype_RAS_Profiles.xlsx`
 

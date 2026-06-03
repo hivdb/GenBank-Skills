@@ -24,8 +24,9 @@ See `NS5B_workflow.svg` in this skill folder.
 9. `scripts/build_ns5b_subtype_allstudies_wseqs.py`
 10. `scripts/build_ns5b_subtype_with_gt_aa.py`
 11. `scripts/build_ns5b_completeprofiles_tabspergt.py`
-12. `scripts/build_ns5b_gt_ras_profiles.py`
-13. `scripts/build_ns5b_subtype_ras_profiles.py`
+12. `scripts/export_ns5b_consensus_fasta.py`
+13. `scripts/build_ns5b_gt_ras_profiles.py`
+14. `scripts/build_ns5b_subtype_ras_profiles.py`
 
 Prefer the wrapper when running the full workflow:
 
@@ -79,6 +80,8 @@ The workflow writes NS5B outputs under `outputs/`, including:
 - `NS5B_Subtype_With_GT_AA.xlsx`
 - `NS5B_GT_CompleteProfiles_TabsPerGT.xlsx`
 - `NS5B_Subtype_CompleteProfiles_TabsPerGT.xlsx`
+- `NS5B_GT_Consensus.fasta`
+- `NS5B_Subtype_Consensus.fasta`
 - `NS5B_GT_RAS_Profiles.xlsx`
 - `NS5B_Subtype_RAS_Profiles.xlsx`
 
