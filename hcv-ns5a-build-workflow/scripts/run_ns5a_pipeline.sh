@@ -126,6 +126,7 @@ rm -rf "$REFID_METADATA_DIR"
   --sheet "$SHEET_NAME" \
   --fasta-dir "$INCLUDED_FASTA_DIR" \
   --reference-fasta "$REFERENCE_FASTA" \
+  --genotype-subtype-csv "$TEMP_ROOT/included_accessions_genotype_subtype.csv" \
   --output-dir "$OUTPUT_DIR" \
   --refid-column RefID \
   --refname-column RefName \
@@ -152,6 +153,7 @@ echo "Skipping NS5A source-feature extraction and grouped summary steps"
   --combined-workbook "$OUTPUT_DIR/NS5A_GT_AllStudies.xlsx" \
   --fasta-dir "$INCLUDED_FASTA_DIR" \
   --subtype-json "$SUBTYPE_JSON" \
+  --genotype-subtype-csv "$TEMP_ROOT/included_accessions_genotype_subtype.csv" \
   --output-dir "$OUTPUT_DIR" \
   > "$SUBTYPE_ALLSTUDIES_JSON"
 

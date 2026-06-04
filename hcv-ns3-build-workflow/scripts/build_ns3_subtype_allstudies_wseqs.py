@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import csv
 import json
 import re
 import shutil
@@ -31,6 +32,13 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--subtype-json", required=True, help="Path to HCV_Subtype_Refs_By_Genome_NA.json")
     parser.add_argument("--output-dir", default="outputs", help="Base output directory")
     parser.add_argument("--min-aligned-nt", type=int, default=200, help="Skip hits shorter than this overlap length")
+    parser.add_argument(
+        "--genotype-subtype-csv",
+        help=(
+            "Optional included_accessions_genotype_subtype.csv from the metadata-filter step. "
+            "Rows with subtype use that value as ClosestSubtype instead of distance selection."
+        ),
+    )
     return parser.parse_args()
 
 
@@ -71,6 +79,45 @@ def parse_fasta(path: Path) -> list[tuple[str, str]]:
 
 def accession_from_header(header: str) -> str:
     return header.split()[0]
+
+
+def normalize_genotype(value: str) -> str:
+    match = re.match(r"([1-8])", value.strip())
+    return match.group(1) if match else ""
+
+
+def normalize_subtype(value: str, genotype: str = "") -> str:
+    text = value.strip().lower()
+    if re.fullmatch(r"[a-z][a-z0-9]*", text) and genotype:
+        return f"{genotype}{text}"
+    return text
+
+
+def default_genotype_subtype_csv(fasta_dir: Path) -> Path:
+    return fasta_dir.parent / "included_accessions_genotype_subtype.csv"
+
+
+def load_metadata_assignments(path: Path | None) -> dict[str, dict[str, str]]:
+    if path is None or not path.is_file():
+        return {}
+    with path.open(encoding="utf-8-sig", newline="") as handle:
+        reader = csv.DictReader(handle)
+        required = {"accession", "genotype", "subtype", "column_name"}
+        missing = required.difference(reader.fieldnames or [])
+        if missing:
+            raise RuntimeError(f"Columns missing from {path}: {', '.join(sorted(missing))}")
+        assignments: dict[str, dict[str, str]] = {}
+        for row in reader:
+            accession = (row.get("accession") or "").strip()
+            if not accession:
+                continue
+            genotype = normalize_genotype(row.get("genotype") or "")
+            assignments[accession] = {
+                "genotype": genotype,
+                "subtype": normalize_subtype(row.get("subtype") or "", genotype),
+                "column_name": (row.get("column_name") or "").strip(),
+            }
+    return assignments
 
 
 CODON_TABLE = {
@@ -442,6 +489,8 @@ def write_xlsx(path: Path, rows: list[dict[str, Any]]) -> None:
         "AccessionID",
         "ClosestGT",
         "ClosestSubtype",
+        "ClosestSubtypeAssignmentSource",
+        "ClosestSubtypeMetadataColumn",
         "ClosestSubtypeRefAccession",
         "ClosestSubtypeDistance",
         "NextClosestSubtype",
@@ -482,6 +531,12 @@ def main() -> int:
     fasta_dir = Path(args.fasta_dir).expanduser()
     subtype_json = Path(args.subtype_json).expanduser()
     output_dir = Path(args.output_dir)
+    metadata_csv = (
+        Path(args.genotype_subtype_csv).expanduser()
+        if args.genotype_subtype_csv
+        else default_genotype_subtype_csv(fasta_dir)
+    )
+    metadata_assignments = load_metadata_assignments(metadata_csv)
 
     base_rows = load_combined_rows(combined_workbook)
     refs_by_gt = load_subtype_references(subtype_json)
@@ -498,6 +553,7 @@ def main() -> int:
     row_lookup: dict[str, dict[str, Any]] = {}
     skipped_missing_fasta: list[dict[str, str]] = []
     skipped_missing_sequence: list[dict[str, str]] = []
+    output_rows: list[dict[str, Any]] = []
 
     for refid, rows in rows_by_refid.items():
         fasta_path = refid_to_fasta.get(refid)
@@ -513,12 +569,37 @@ def main() -> int:
                 skipped_missing_sequence.append(row)
                 continue
             gt = row["ClosestGT"]
+            metadata = metadata_assignments.get(accession, {})
+            metadata_subtype = normalize_subtype(metadata.get("subtype", ""), gt)
+            if metadata_subtype:
+                output_rows.append(
+                    {
+                        "RefID": row["RefID"],
+                        "RefName": row["RefName"],
+                        "AccessionID": row["AccessionID"],
+                        "ClosestGT": gt,
+                        "ClosestSubtype": metadata_subtype,
+                        "ClosestSubtypeAssignmentSource": "metadata",
+                        "ClosestSubtypeMetadataColumn": metadata.get("column_name", ""),
+                        "ClosestSubtypeRefAccession": "",
+                        "ClosestSubtypeDistance": "",
+                        "NextClosestSubtype": "",
+                        "NextClosestSubtypeDistance": "",
+                        "AlignedNT": "",
+                        "NextClosestSubtypeAlignedNT": "",
+                        "StartAAPosition": "",
+                        "EndAAPosition": "",
+                        "AASequence": "",
+                        "AlignedQueryNT": "",
+                        "AlignedSubjectNT": "",
+                    }
+                )
+                continue
             qseqid = f"{refid}|{accession}"
             query_entries_by_gt[gt].append((qseqid, sequence))
             entries_by_qseqid[qseqid] = sequence
             row_lookup[qseqid] = row
 
-    output_rows: list[dict[str, Any]] = []
     for gt, entries in sorted(query_entries_by_gt.items(), key=lambda item: int(item[0])):
         refs = refs_by_gt.get(gt, [])
         if not refs:
@@ -545,6 +626,8 @@ def main() -> int:
                     "AccessionID": row["AccessionID"],
                     "ClosestGT": row["ClosestGT"],
                     "ClosestSubtype": best["subtype"],
+                    "ClosestSubtypeAssignmentSource": "distance",
+                    "ClosestSubtypeMetadataColumn": "",
                     "ClosestSubtypeRefAccession": best["subtype_ref_accession"],
                     "ClosestSubtypeDistance": best["distance"],
                     "NextClosestSubtype": second["subtype"] if second else "",
@@ -576,6 +659,11 @@ def main() -> int:
         "skipped_missing_fasta": len(skipped_missing_fasta),
         "skipped_missing_sequence": len(skipped_missing_sequence),
         "input_row_count": len(base_rows),
+        "metadata_assignment_csv": str(metadata_csv.resolve()) if metadata_csv.is_file() else "",
+        "metadata_assignment_count": len(metadata_assignments),
+        "metadata_closest_subtype_count": sum(
+            1 for row in output_rows if row.get("ClosestSubtypeAssignmentSource") == "metadata"
+        ),
     }
     # Historical extra output kept for reference only.
     # (job_dir / "summary.json").write_text(json.dumps(summary, indent=2) + "\n", encoding="utf-8")

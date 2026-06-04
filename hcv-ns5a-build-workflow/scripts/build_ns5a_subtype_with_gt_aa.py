@@ -18,6 +18,7 @@ from openpyxl import Workbook, load_workbook
 
 
 BLAST_OUTFMT = "6 qseqid sseqid length mismatch gaps pident evalue bitscore qstart qend sstart send qframe"
+FASTA_EXTENSIONS = {".fa", ".faa", ".fasta", ".fna", ".fas", ".ffn", ".frn", ".seq"}
 CODON_TABLE = {
     "TTT": "F", "TTC": "F", "TTA": "L", "TTG": "L",
     "TCT": "S", "TCC": "S", "TCA": "S", "TCG": "S",
@@ -194,7 +195,7 @@ def load_subtype_rows(workbook_path: Path) -> tuple[list[str], list[dict[str, An
 def build_refid_to_fasta(fasta_dir: Path) -> dict[str, Path]:
     mapping: dict[str, Path] = {}
     for path in sorted(fasta_dir.rglob("*")):
-        if not path.is_file():
+        if not path.is_file() or path.suffix.lower() not in FASTA_EXTENSIONS:
             continue
         if "_" not in path.name:
             continue

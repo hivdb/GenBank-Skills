@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import csv
 import json
 import re
 import shutil
@@ -41,6 +42,13 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--numpatients-column", default="NumPts")
     parser.add_argument("--positive-column", action="append", default=["NS3Count"])
     parser.add_argument("--min-aligned-nt", type=int, default=200, help="Skip hits shorter than this overlap length")
+    parser.add_argument(
+        "--genotype-subtype-csv",
+        help=(
+            "Optional included_accessions_genotype_subtype.csv from the metadata-filter step. "
+            "Rows with genotype use that value as BestGT instead of distance selection."
+        ),
+    )
     return parser.parse_args()
 
 
@@ -95,6 +103,37 @@ def parse_fasta(path: Path) -> list[tuple[str, str]]:
 
 def accession_from_header(header: str) -> str:
     return header.split()[0]
+
+
+def normalize_genotype(value: str) -> str:
+    match = re.match(r"([1-8])", value.strip())
+    return match.group(1) if match else ""
+
+
+def default_genotype_subtype_csv(fasta_dir: Path) -> Path:
+    return fasta_dir.parent / "included_accessions_genotype_subtype.csv"
+
+
+def load_metadata_assignments(path: Path | None) -> dict[str, dict[str, str]]:
+    if path is None or not path.is_file():
+        return {}
+    with path.open(encoding="utf-8-sig", newline="") as handle:
+        reader = csv.DictReader(handle)
+        required = {"accession", "genotype", "subtype", "column_name"}
+        missing = required.difference(reader.fieldnames or [])
+        if missing:
+            raise RuntimeError(f"Columns missing from {path}: {', '.join(sorted(missing))}")
+        assignments: dict[str, dict[str, str]] = {}
+        for row in reader:
+            accession = (row.get("accession") or "").strip()
+            if not accession:
+                continue
+            assignments[accession] = {
+                "genotype": normalize_genotype(row.get("genotype") or ""),
+                "subtype": (row.get("subtype") or "").strip().lower(),
+                "column_name": (row.get("column_name") or "").strip(),
+            }
+    return assignments
 
 
 def load_reference_ns3(reference_fasta: Path) -> dict[str, tuple[str, str]]:
@@ -285,6 +324,7 @@ def build_rows_for_study(
     db_prefix: Path,
     subject_id_to_gt: dict[str, str],
     min_aligned_nt: int,
+    metadata_assignments: dict[str, dict[str, str]],
 ) -> list[dict[str, Any]]:
     fasta_path = Path(study["fasta_path"])
     hits = run_blastn_for_study(fasta_path, db_prefix)
@@ -318,26 +358,36 @@ def build_rows_for_study(
             for gt, hit in gt_hits.items()
             if hit is not None and int(hit["length"]) >= min_aligned_nt
         }
-        if not valid_hits:
+        metadata = metadata_assignments.get(accession, {})
+        metadata_gt = metadata.get("genotype", "")
+        if not valid_hits and not metadata_gt:
             continue
 
-        best_gt, best_hit = min(
-            valid_hits.items(),
-            key=lambda item: (
-                item[1]["distance"],
-                -item[1]["length"],
-                -item[1]["bitscore"],
-            ),
-        )
-        covered_positions = resistance_positions_covered(best_hit)
+        if metadata_gt:
+            best_gt = metadata_gt
+            best_hit = valid_hits.get(metadata_gt)
+            assignment_source = "metadata"
+        else:
+            best_gt, best_hit = min(
+                valid_hits.items(),
+                key=lambda item: (
+                    item[1]["distance"],
+                    -item[1]["length"],
+                    -item[1]["bitscore"],
+                ),
+            )
+            assignment_source = "distance"
+        covered_positions = resistance_positions_covered(best_hit) if best_hit else []
 
         row = {
             "RefID": study["RefID"],
             "RefName": study["RefName"],
             "GenBankAccession": accession,
             "BestGT": best_gt,
-            "BestGTDistance": best_hit["distance"],
-            "AlignedNT": best_hit["length"],
+            "BestGTAssignmentSource": assignment_source,
+            "BestGTMetadataColumn": metadata.get("column_name", "") if metadata_gt else "",
+            "BestGTDistance": best_hit["distance"] if best_hit else "",
+            "AlignedNT": best_hit["length"] if best_hit else "",
             "ContainsResistancePosition": "yes" if covered_positions else "no",
             "ResistancePositionsCovered": ",".join(str(pos) for pos in covered_positions),
         }
@@ -375,6 +425,8 @@ def write_xlsx(path: Path, rows: list[dict[str, Any]]) -> None:
         "GenBankAccession",
         *[f"GT{gt}_Distance" for gt in REFERENCE_GTS],
         "BestGT",
+        "BestGTAssignmentSource",
+        "BestGTMetadataColumn",
         "BestGTDistance",
         "AlignedNT",
         "ContainsResistancePosition",
@@ -416,6 +468,12 @@ def main() -> int:
     fasta_dir = Path(args.fasta_dir).expanduser()
     reference_fasta = Path(args.reference_fasta).expanduser()
     base_output_dir = Path(args.output_dir)
+    metadata_csv = (
+        Path(args.genotype_subtype_csv).expanduser()
+        if args.genotype_subtype_csv
+        else default_genotype_subtype_csv(fasta_dir)
+    )
+    metadata_assignments = load_metadata_assignments(metadata_csv)
 
     refs = load_reference_ns3(reference_fasta)
     studies = load_filtered_studies(
@@ -439,7 +497,7 @@ def main() -> int:
     # Historical output flow kept for reference only.
     # study_summaries: list[dict[str, Any]] = []
     for study in matched:
-        rows = build_rows_for_study(study, db_prefix, subject_id_to_gt, args.min_aligned_nt)
+        rows = build_rows_for_study(study, db_prefix, subject_id_to_gt, args.min_aligned_nt, metadata_assignments)
         # Historical per-study workbook flow kept for reference only.
         # safe_stem = sanitize_label(Path(study["fasta_path"]).stem)
         # xlsx_path = progress_dir / f"{safe_stem}.xlsx"
@@ -470,6 +528,9 @@ def main() -> int:
         "output_dir": str(base_output_dir.resolve()),
         "study_count": len(matched),
         "master_row_count": len(master_rows),
+        "metadata_assignment_csv": str(metadata_csv.resolve()) if metadata_csv.is_file() else "",
+        "metadata_assignment_count": len(metadata_assignments),
+        "metadata_best_gt_count": sum(1 for row in master_rows if row.get("BestGTAssignmentSource") == "metadata"),
         "combined_xlsx": str(output_path.resolve()),
         # Historical payload fields kept for reference only.
         # "master_csv": str((job_dir / "ns3_gt_distance_master.csv").resolve()),
