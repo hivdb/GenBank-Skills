@@ -10,10 +10,10 @@ from pathlib import Path
 
 FASTA_EXTENSIONS = {".fa", ".faa", ".fasta", ".fna", ".fas", ".ffn", ".frn", ".seq"}
 GENOTYPE_SUBTYPE_COLUMNS = ["source_note", "source_organism", "source_strain", "source_serotype"]
-GENOTYPE_TOKEN_RE = re.compile(r"\bgenotype\s*[:=]?\s*([1-8][A-Za-z0-9]*)\b", re.IGNORECASE)
+GENOTYPE_TOKEN_RE = re.compile(r"\bgenotype\s*[:=]?\s*([1-8](?:[A-Za-z][A-Za-z0-9]*)?)\b", re.IGNORECASE)
 SUBTYPE_TOKEN_RE = re.compile(r"\bsubtype\s*[:=]?\s*([1-8]?[A-Za-z][A-Za-z0-9]*)\b", re.IGNORECASE)
 HCV_SUBTYPE_RE = re.compile(r"\bHCV[-\s]*([1-8][A-Za-z][A-Za-z0-9]*)\b", re.IGNORECASE)
-BARE_GT_SUBTYPE_RE = re.compile(r"^\s*([1-8][A-Za-z]?[A-Za-z0-9]*)\s*$", re.IGNORECASE)
+BARE_GT_SUBTYPE_RE = re.compile(r"^\s*([1-8][A-Za-z][A-Za-z0-9]*)\s*$", re.IGNORECASE)
 
 
 def parse_args() -> argparse.Namespace:

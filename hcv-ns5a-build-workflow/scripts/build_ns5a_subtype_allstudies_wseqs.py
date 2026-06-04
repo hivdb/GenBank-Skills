@@ -377,8 +377,6 @@ def choose_best_by_subtype(
 ) -> dict[str, list[dict[str, Any]]]:
     best: dict[tuple[str, str], dict[str, Any]] = {}
     for hit in hits:
-        if hit["length"] < min_aligned_nt:
-            continue
         meta = subject_meta.get(hit["sseqid"])
         if meta is None:
             continue
@@ -477,6 +475,23 @@ def write_xlsx(path: Path, rows: list[dict[str, Any]]) -> None:
     workbook.save(path)
 
 
+def write_unassigned_report(path: Path, reason_rows: list[tuple[str, dict[str, Any]]]) -> None:
+    fieldnames = ["Reason", "RefID", "RefName", "AccessionID", "ClosestGT"]
+    with path.open("w", encoding="utf-8", newline="") as handle:
+        writer = csv.DictWriter(handle, fieldnames=fieldnames)
+        writer.writeheader()
+        for reason, row in reason_rows:
+            writer.writerow(
+                {
+                    "Reason": reason,
+                    "RefID": row.get("RefID", ""),
+                    "RefName": row.get("RefName", ""),
+                    "AccessionID": row.get("AccessionID", ""),
+                    "ClosestGT": row.get("ClosestGT", ""),
+                }
+            )
+
+
 def cleanup_db_files(job_dir: Path) -> None:
     for path in job_dir.iterdir():
         if path.name.startswith("ns5a_subtype_gt") and path.suffix in {
@@ -523,6 +538,8 @@ def main() -> int:
     row_lookup: dict[str, dict[str, Any]] = {}
     skipped_missing_fasta: list[dict[str, str]] = []
     skipped_missing_sequence: list[dict[str, str]] = []
+    skipped_missing_subtype_refs: list[dict[str, str]] = []
+    skipped_no_subtype_hit: list[dict[str, str]] = []
     output_rows: list[dict[str, Any]] = []
 
     for refid, rows in rows_by_refid.items():
@@ -569,6 +586,8 @@ def main() -> int:
     for gt, entries in sorted(query_entries_by_gt.items(), key=lambda item: int(item[0])):
         refs = refs_by_gt.get(gt, [])
         if not refs:
+            for qseqid, _sequence in entries:
+                skipped_missing_subtype_refs.append(row_lookup[qseqid])
             continue
         query_fasta = job_dir / f"ns5a_queries_gt{gt}.fasta"
         write_fasta_entries(query_fasta, entries)
@@ -581,6 +600,7 @@ def main() -> int:
                 continue
             subtype_hits = hits_by_query.get(qseqid)
             if not subtype_hits:
+                skipped_no_subtype_hit.append(row)
                 continue
             best = subtype_hits[0]
             second = subtype_hits[1] if len(subtype_hits) > 1 else None
@@ -608,6 +628,15 @@ def main() -> int:
         except OSError:
             pass
 
+    unassigned_report = script_temp_dir() / "unassigned_subtype_accessions.csv"
+    unassigned_reason_rows = (
+        [("missing_fasta", row) for row in skipped_missing_fasta]
+        + [("missing_sequence", row) for row in skipped_missing_sequence]
+        + [("missing_subtype_refs", row) for row in skipped_missing_subtype_refs]
+        + [("no_subtype_hit", row) for row in skipped_no_subtype_hit]
+    )
+    write_unassigned_report(unassigned_report, unassigned_reason_rows)
+
     output_rows.sort(key=lambda row: (int(row["RefID"]), row["AccessionID"]))
     write_xlsx(output_path, output_rows)
     # Historical extra output kept for reference only.
@@ -620,6 +649,9 @@ def main() -> int:
         "row_count": len(output_rows),
         "skipped_missing_fasta": len(skipped_missing_fasta),
         "skipped_missing_sequence": len(skipped_missing_sequence),
+        "skipped_missing_subtype_refs": len(skipped_missing_subtype_refs),
+        "skipped_no_subtype_hit": len(skipped_no_subtype_hit),
+        "unassigned_subtype_report": str(unassigned_report.resolve()),
         "input_row_count": len(base_rows),
         "metadata_assignment_csv": str(metadata_csv.resolve()) if metadata_csv.is_file() else "",
         "metadata_assignment_count": len(metadata_assignments),
