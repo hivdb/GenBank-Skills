@@ -109,6 +109,8 @@ def extract_genotype_subtype(value: str) -> tuple[str, str] | None:
     text = value.strip()
     if not text:
         return None
+    if "recombinant" in text.lower():
+        return None
 
     genotype = ""
     subtype = ""

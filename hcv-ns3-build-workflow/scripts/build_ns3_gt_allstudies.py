@@ -21,6 +21,7 @@ from openpyxl import Workbook, load_workbook
 
 
 BLAST_OUTFMT = "6 qseqid sseqid length mismatch gaps pident evalue bitscore qstart qend sstart send"
+FASTA_EXTENSIONS = {".fa", ".fasta", ".fna"}
 REFERENCE_GTS = tuple(str(i) for i in range(1, 9))
 RESISTANCE_POSITIONS = [36, 41, 43, 54, 55, 56, 80, 122, 155, 156, 158, 166, 168, 170, 175]
 
@@ -210,7 +211,11 @@ def filename_matches_refid(filename: str, refid: str) -> bool:
 
 
 def find_study_fasta_files(fasta_dir: Path, studies: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    files = sorted(path for path in fasta_dir.rglob("*") if path.is_file())
+    files = sorted(
+        path
+        for path in fasta_dir.rglob("*")
+        if path.is_file() and path.suffix.lower() in FASTA_EXTENSIONS
+    )
     result: list[dict[str, Any]] = []
     for study in studies:
         matches = [path for path in files if filename_matches_refid(path.name, study["RefID"])]

@@ -68,12 +68,16 @@ SUBTYPE_WITH_GT_AA_JSON="$SKILL_TEMP_ROOT/build_ns5a_subtype_with_gt_aa/last_run
 COMPLETEPROFILES_JSON="$SKILL_TEMP_ROOT/build_ns5a_completeprofiles_tabspergt/last_run_summary.json"
 GT_RAS_JSON="$SKILL_TEMP_ROOT/build_ns5a_gt_ras_profiles/last_run_summary.json"
 SUBTYPE_RAS_JSON="$SKILL_TEMP_ROOT/build_ns5a_subtype_ras_profiles/last_run_summary.json"
+GT_AA_DISTANCE_SUMMARY="$SKILL_TEMP_ROOT/build_ns5a_gt_aa_distance_matrix/last_run_summary.txt"
+SUBTYPE_AA_DISTANCE_SUMMARY="$SKILL_TEMP_ROOT/build_ns5a_subtype_aa_distance_matrices/last_run_summary.txt"
+RAS_ENTROPY_SUMMARY="$SKILL_TEMP_ROOT/build_ns5a_ras_entropy/last_run_summary.txt"
 REFID_METADATA_DIR="$TEMP_ROOT/refid_metadata"
 mkdir -p "$TEMP_ROOT"
 mkdir -p "$(dirname "$GT_ALLSTUDIES_JSON")" "$(dirname "$SOURCEFEATURES_JSON")" "$(dirname "$SOURCEFEATURES_GROUPED_JSON")"
 mkdir -p "$(dirname "$SUBTYPE_ALLSTUDIES_JSON")" "$(dirname "$SUBTYPE_WITH_GT_AA_JSON")"
 mkdir -p "$(dirname "$COMPLETEPROFILES_JSON")"
 mkdir -p "$(dirname "$GT_RAS_JSON")" "$(dirname "$SUBTYPE_RAS_JSON")"
+mkdir -p "$(dirname "$GT_AA_DISTANCE_SUMMARY")" "$(dirname "$SUBTYPE_AA_DISTANCE_SUMMARY")" "$(dirname "$RAS_ENTROPY_SUMMARY")"
 
 mkdir -p "$OUTPUT_DIR"
 
@@ -188,6 +192,30 @@ AA_TMP_WORKBOOK="$("$PYTHON_BIN" -c 'import json,sys; print(json.load(open(sys.a
   --gt-aa-json "$GT_AA_JSON" \
   --output-dir "$OUTPUT_DIR" \
   > "$SUBTYPE_RAS_JSON"
+
+"$PYTHON_BIN" "$SCRIPT_DIR/build_ns5a_gt_aa_distance_matrix.py" \
+  --input-fasta "$OUTPUT_DIR/NS5A_GT_Consensus.fasta" \
+  --aligned-fasta "$OUTPUT_DIR/NS5A_GT_Consensus_aligned.fasta" \
+  --output-xlsx "$OUTPUT_DIR/NS5A_GT_AA_Distance_Pos24_93.xlsx" \
+  --details-xlsx "$SKILL_TEMP_ROOT/build_ns5a_gt_aa_distance_matrix/NS5A_GT_AA_Distance_Pos24_93_details.xlsx" \
+  --start 24 \
+  --end 93 \
+  > "$GT_AA_DISTANCE_SUMMARY"
+
+"$PYTHON_BIN" "$SCRIPT_DIR/build_ns5a_subtype_aa_distance_matrices.py" \
+  --input-fasta "$OUTPUT_DIR/NS5A_Subtype_Consensus.fasta" \
+  --output-xlsx "$OUTPUT_DIR/NS5A_Subtype_AA_Distance_Pos24_93.xlsx" \
+  --temp-dir "$SKILL_TEMP_ROOT/build_ns5a_subtype_aa_distance_matrices" \
+  --start 24 \
+  --end 93 \
+  > "$SUBTYPE_AA_DISTANCE_SUMMARY"
+
+"$PYTHON_BIN" "$SCRIPT_DIR/build_ns5a_ras_entropy.py" \
+  --gt-profile-workbook "$OUTPUT_DIR/NS5A_GT_CompleteProfiles_TabsPerGT.xlsx" \
+  --subtype-profile-workbook "$OUTPUT_DIR/NS5A_Subtype_CompleteProfiles_TabsPerGT.xlsx" \
+  --gt-output-xlsx "$OUTPUT_DIR/NS5A_GT_RAS_Entropy.xlsx" \
+  --subtype-output-xlsx "$OUTPUT_DIR/NS5A_Subtype_RAS_Entropy.xlsx" \
+  > "$RAS_ENTROPY_SUMMARY"
 
 echo "NS5A pipeline complete"
 echo "matched_fasta_report=$MATCHED_TXT"

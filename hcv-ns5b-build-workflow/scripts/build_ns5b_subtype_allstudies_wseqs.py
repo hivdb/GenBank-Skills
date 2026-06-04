@@ -476,7 +476,7 @@ def write_xlsx(path: Path, rows: list[dict[str, Any]]) -> None:
 
 
 def write_unassigned_report(path: Path, reason_rows: list[tuple[str, dict[str, Any]]]) -> None:
-    fieldnames = ["Reason", "RefID", "RefName", "AccessionID", "ClosestGT"]
+    fieldnames = ["AccessionID", "Reason", "RefID", "RefName", "ClosestGT"]
     with path.open("w", encoding="utf-8", newline="") as handle:
         writer = csv.DictWriter(handle, fieldnames=fieldnames)
         writer.writeheader()
@@ -490,6 +490,21 @@ def write_unassigned_report(path: Path, reason_rows: list[tuple[str, dict[str, A
                     "ClosestGT": row.get("ClosestGT", ""),
                 }
             )
+
+
+def write_missing_accession_reason_files(
+    temp_dir: Path,
+    reason_rows: list[tuple[str, dict[str, Any]]],
+) -> Path:
+    fieldnames = ["Reason", "RefID", "RefName", "AccessionID", "ClosestGT"]
+    all_reasons_path = temp_dir / "missing_accession_reason.csv"
+
+    with all_reasons_path.open("w", encoding="utf-8", newline="") as handle:
+        writer = csv.writer(handle)
+        writer.writerow(fieldnames)
+        for reason, row in reason_rows:
+            writer.writerow([row.get("AccessionID", ""), reason, row.get("RefID", ""), row.get("RefName", ""), row.get("ClosestGT", "")])
+    return all_reasons_path
 
 
 def cleanup_db_files(job_dir: Path) -> None:
@@ -628,7 +643,8 @@ def main() -> int:
         except OSError:
             pass
 
-    unassigned_report = script_temp_dir() / "unassigned_subtype_accessions.csv"
+    temp_output_dir = script_temp_dir()
+    unassigned_report = temp_output_dir / "unassigned_subtype_accessions.csv"
     unassigned_reason_rows = (
         [("missing_fasta", row) for row in skipped_missing_fasta]
         + [("missing_sequence", row) for row in skipped_missing_sequence]
@@ -636,6 +652,10 @@ def main() -> int:
         + [("no_subtype_hit", row) for row in skipped_no_subtype_hit]
     )
     write_unassigned_report(unassigned_report, unassigned_reason_rows)
+    missing_accession_reason_file = write_missing_accession_reason_files(
+        temp_output_dir,
+        unassigned_reason_rows,
+    )
 
     output_rows.sort(key=lambda row: (int(row["RefID"]), row["AccessionID"]))
     write_xlsx(output_path, output_rows)
@@ -652,6 +672,7 @@ def main() -> int:
         "skipped_missing_subtype_refs": len(skipped_missing_subtype_refs),
         "skipped_no_subtype_hit": len(skipped_no_subtype_hit),
         "unassigned_subtype_report": str(unassigned_report.resolve()),
+        "missing_accession_reason_file": str(missing_accession_reason_file.resolve()),
         "input_row_count": len(base_rows),
         "metadata_assignment_csv": str(metadata_csv.resolve()) if metadata_csv.is_file() else "",
         "metadata_assignment_count": len(metadata_assignments),
